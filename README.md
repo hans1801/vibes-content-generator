@@ -64,21 +64,24 @@ Convert the provided video script into the following JSON structure.
 
 For each scene, generate:
 
-* `scene_number`
-* `image_prompt`
-* `video_prompt`
-* `narration`
+* scene_number
+* image_prompt
+* video_prompt
+* narration
 
 Requirements:
 
-* `image_prompt` must be a single plain text string describing the visual scene in detail.
-* `video_prompt` must be a single plain text string describing character motion, environment motion, camera movement, transition, and approximate duration.
-* `narration` must preserve the original narration for the scene.
-* Keep all prompts in English.
+* image_prompt must contain exactly the content from the "Image Prompt" section converted into a single plain text string.
+* video_prompt must contain exactly the content from the "Video Prompt" section converted into a single plain text string.
+* narration must contain exactly the content from the "Narration" section.
+* Do not rewrite, improve, summarize, embellish, or reinterpret any scene.
+* Preserve all scene details, descriptions, actions, lighting, composition, atmosphere, style, and duration information.
+* Keep prompts in English only if the source prompts are in English; otherwise preserve the original language.
 * Keep narrations in their original language.
 * Return only valid JSON.
-* Do not use nested prompt objects.
-* Maintain visual consistency between scenes when characters or locations repeat.
+* Do not use nested objects.
+* Do not omit any information from the original scene.
+* Create one JSON scene entry for every scene found in the script.
 
 Output format:
 
