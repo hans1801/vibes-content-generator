@@ -8,6 +8,7 @@ import {
   sceneGeneratedImageName,
   sceneGeneratedVideoName,
   sceneRefImageName,
+  sceneRefVideoName,
 } from '../../lib/constants';
 import BatchMode from './BatchMode/BatchMode';
 import './style.css';
@@ -36,6 +37,32 @@ async function fetchWithTimeout(url: string): Promise<Response> {
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// vibes.ai stamps a small "Meta AI" watermark in the bottom-right corner of
+// generated images. Blur that corner region so it's illegible instead of
+// trying to crop it out (crop would shift framing/aspect ratio).
+async function blurWatermarkCorner(blob: Blob): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return blob;
+    ctx.drawImage(bitmap, 0, 0);
+
+    const regionW = Math.round(bitmap.width * 0.22);
+    const regionH = Math.round(bitmap.height * 0.07);
+    const x = bitmap.width - regionW;
+    const y = bitmap.height - regionH;
+
+    ctx.filter = 'blur(14px)';
+    ctx.drawImage(canvas, x, y, regionW, regionH, x, y, regionW, regionH);
+    ctx.filter = 'none';
+
+    return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 });
+  } catch {
+    return blob;
+  }
+}
 
 async function fetchBlobWithRetry(url: string): Promise<Blob | null> {
   for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
@@ -196,21 +223,25 @@ export default function App() {
 
       const blobs = await Promise.all(
         pw.urls.map(async (url, i) => {
-          const blob = await fetchBlobWithRetry(url);
+          let blob = await fetchBlobWithRetry(url);
           if (!blob) return null;
+          if (pw.mode === BatchModes.Image) blob = await blurWatermarkCorner(blob);
           await writeBlobToFile(sceneDir, nameFor(i), blob);
           return blob;
         })
       );
 
-      // Only image scenes need a "ref" copy — it's the input the video step
-      // later reads as the start frame. Videos are a terminal output.
-      if (pw.mode === BatchModes.Image) {
-        const validBlobs = blobs.filter((b): b is Blob => b !== null);
-        if (validBlobs.length > 0) {
-          const refBlob = validBlobs[Math.floor(Math.random() * validBlobs.length)];
-          await writeBlobToFile(rootDir, sceneRefImageName(pw.sceneNumber), refBlob);
-        }
+      // Pick one random blob from the batch as the scene's chosen output —
+      // for images it's also the start-frame input the video step reads
+      // later; for videos it's simply the final pick for that scene.
+      const validBlobs = blobs.filter((b): b is Blob => b !== null);
+      if (validBlobs.length > 0) {
+        const picked = validBlobs[Math.floor(Math.random() * validBlobs.length)];
+        const refName =
+          pw.mode === BatchModes.Image
+            ? sceneRefImageName(pw.sceneNumber)
+            : sceneRefVideoName(pw.sceneNumber);
+        await writeBlobToFile(rootDir, refName, picked);
       }
 
       browser.runtime

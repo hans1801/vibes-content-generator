@@ -177,6 +177,21 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
   await persistBatch();
   broadcastStatus();
   const nextIdx = batch.currentIndex + 1;
+  const isLastScene = nextIdx >= batch.scenes.length;
+
+  if (isLastScene) {
+    const errorCount = Object.values(batch.sceneStatuses).filter(
+      (s) => s === SceneStatuses.Error
+    ).length;
+    const step =
+      errorCount > 0
+        ? `Batch completo, ${errorCount} escena(s) con error`
+        : 'Batch completo, sin errores';
+    log({ sceneNumber, step, kind: errorCount > 0 ? LogKinds.Error : LogKinds.Success });
+    await processScene(nextIdx); // marks batch inactive, no more scenes to run
+    return;
+  }
+
   const nextDelayMs = batch.mode === BatchModes.Video ? 12000 : 4000;
   log({
     sceneNumber,
