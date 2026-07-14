@@ -1,0 +1,271 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  min-width: 420px;
+}
+
+#app {
+  padding: 16px;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 12px;
+  text-align: center;
+}
+
+.mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mode-tabs button {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  background: #2a2a2a;
+  color: inherit;
+}
+
+.mode-tabs button.active {
+  border-color: #6366f1;
+  font-weight: 600;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prompt-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #1a1a1a;
+  color: inherit;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.generate-btn,
+.folder-select-btn,
+.abort-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.generate-btn {
+  background: #6366f1;
+  color: white;
+}
+
+.generate-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.folder-select-btn {
+  background: #2a2a2a;
+  color: inherit;
+  text-align: left;
+}
+
+.abort-btn {
+  background: #ef4444;
+  color: white;
+}
+
+.status {
+  font-size: 12px;
+  margin: 0;
+}
+
+.status-success {
+  color: #22c55e;
+}
+
+.status-error {
+  color: #ef4444;
+}
+
+.status-loading {
+  opacity: 0.8;
+}
+
+.scenes-count {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.scene-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.scene-cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #2a2a2a;
+  font-size: 11px;
+}
+
+.scene-cell--done {
+  background: #14532d;
+  color: #22c55e;
+}
+
+.scene-cell--processing {
+  background: #713f12;
+  color: #f59e0b;
+}
+
+.scene-cell--error {
+  background: #7f1d1d;
+  color: #ef4444;
+}
+
+.project-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.project-count {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar__track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #2a2a2a;
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  background: #6366f1;
+}
+
+.batch-note {
+  font-size: 11px;
+  opacity: 0.6;
+  margin: 0;
+  text-align: center;
+}
+
+.last-batch {
+  border-top: 1px solid #2a2a2a;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.last-batch__label {
+  font-size: 12px;
+  opacity: 0.7;
+  margin: 0;
+}
+
+.footer {
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.4;
+  margin: 12px 0 0;
+}
+
+.debug-panel {
+  margin-top: 14px;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 10px;
+}
+
+.debug-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.debug-panel__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.debug-panel__actions button {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #3a3a3a;
+  background: #1a1a1a;
+  color: inherit;
+  cursor: pointer;
+}
+
+.debug-panel__actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.debug-panel__list {
+  max-height: 220px;
+  overflow-y: auto;
+  background: #111;
+  border-radius: 8px;
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.debug-panel__line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-bottom: 1px solid #1f1f1f;
+  padding: 2px 0;
+}
+
+.debug-panel__line:last-child {
+  border-bottom: none;
+}
+
+.debug-panel__empty {
+  margin: 0;
+  opacity: 0.5;
+  font-family: inherit;
+}

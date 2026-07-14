@@ -1,0 +1,39 @@
+{
+  "name": "vibes-image-video-generator",
+  "description": "Chrome extension to automate image/video generation on vibes.ai",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "compile": "tsc --noEmit",
+    "lint": "eslint entrypoints lib",
+    "lint:fix": "eslint entrypoints lib --fix",
+    "format": "prettier --write entrypoints lib",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.29.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@wxt-dev/module-react": "^1.1.5",
+    "eslint": "^9.29.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.8.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.61.1",
+    "wxt": "^0.20.26"
+  }
+}
