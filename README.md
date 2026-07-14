@@ -16,7 +16,7 @@ cd vibes-image-video-generator
 npm install
 ```
 
-## Build and Manual Load in Chrome
+## Build and Load in Chrome
 
 If you want to compile the final version of the extension or install it in your main Chrome profile:
 
