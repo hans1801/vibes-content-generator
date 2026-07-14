@@ -7,7 +7,7 @@ export const Actions = {
   WriteDone: 'write_done',
   SceneFailed: 'scene_failed',
   BatchStatus: 'batch_status',
-  DebugLog: 'debug_log',
+  Log: 'log',
 } as const;
 
 export const BatchModes = {
@@ -108,12 +108,28 @@ export interface BatchStatusMessage {
   status: BatchStatus | null;
 }
 
-// The content script runs on the page, invisible to DevTools unless you know
-// to inspect that specific tab. Piping its debug output through here lets
-// the popup show it directly, no console-hunting required.
-export interface DebugLogMessage {
-  action: typeof Actions.DebugLog;
-  text: string;
+export const LogKinds = {
+  Info: 'info',
+  Retry: 'retry',
+  Success: 'success',
+  Error: 'error',
+} as const;
+
+export type LogKind = (typeof LogKinds)[keyof typeof LogKinds];
+
+// Step-level progress markers (current step, retry N/max, cooldown before
+// the next retry or scene) — sent from content.ts and background.ts so the
+// popup can show them, since neither of those contexts has a visible UI of
+// its own. Structured (not free text) so the popup can render a live
+// countdown for `cooldownMs`, color-code by `kind`, and replace the whole
+// status on each new message instead of piling up a scrollback.
+export interface LogMessage {
+  action: typeof Actions.Log;
+  sceneNumber?: number;
+  step: string;
+  kind: LogKind;
+  attempt?: { current: number; max: number };
+  cooldownMs?: number;
 }
 
 export type ExtensionMessage =
@@ -125,7 +141,7 @@ export type ExtensionMessage =
   | WriteDoneMessage
   | SceneFailedMessage
   | BatchStatusMessage
-  | DebugLogMessage;
+  | LogMessage;
 
 // ── Response contracts ────────────────────────────────────────────────────────
 

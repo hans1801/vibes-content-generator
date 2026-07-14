@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Actions, BatchModes } from '../../lib/types';
-import type { BatchStatus, ExtensionMessage, PendingWrite } from '../../lib/types';
+import type { BatchStatus, ExtensionMessage, PendingWrite, LogKind } from '../../lib/types';
 import { loadProjectHandle } from './utils';
 import {
   ProjectDirs,
@@ -114,44 +114,64 @@ function SingleMode() {
   );
 }
 
-const MAX_DEBUG_LOGS = 300;
+interface LogStatus {
+  sceneNumber?: number;
+  step: string;
+  kind: LogKind;
+  attempt?: { current: number; max: number };
+  cooldownMs?: number;
+  receivedAt: number;
+}
 
-function DebugPanel({ logs, onClear }: { logs: string[]; onClear: () => void }) {
-  const listRef = useRef<HTMLDivElement>(null);
+function formatCountdown(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
+}
+
+// A single "current status" card instead of a scrolling log — a fresh
+// message (new attempt, new step) just replaces the old one, so there's
+// nothing stale left on screen to confuse with the current state. The
+// cooldown counts down live client-side from the moment the message
+// arrived, ticking every 500ms.
+function StatusPanel({ status }: { status: LogStatus | null }) {
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const el = listRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs]);
+    if (!status?.cooldownMs) return;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [status]);
 
-  const copyLogs = () => {
-    navigator.clipboard.writeText(logs.join('\n')).catch(() => {});
-  };
+  if (!status) return null;
+
+  const remainingMs = status.cooldownMs
+    ? Math.max(0, status.cooldownMs - (now - status.receivedAt))
+    : null;
+  const progress = status.cooldownMs && remainingMs !== null ? remainingMs / status.cooldownMs : 0;
 
   return (
-    <div className="debug-panel">
-      <div className="debug-panel__header">
-        <span>Logs ({logs.length})</span>
-        <div className="debug-panel__actions">
-          <button onClick={copyLogs} disabled={logs.length === 0}>
-            Copiar
-          </button>
-          <button onClick={onClear} disabled={logs.length === 0}>
-            Limpiar
-          </button>
-        </div>
-      </div>
-      <div className="debug-panel__list" ref={listRef}>
-        {logs.length === 0 ? (
-          <p className="debug-panel__empty">Sin logs todavía — corré una acción en vibes.ai.</p>
-        ) : (
-          logs.map((line, i) => (
-            <div key={i} className="debug-panel__line">
-              {line}
-            </div>
-          ))
+    <div className={`log-panel log-panel--${status.kind}`}>
+      <div className="log-panel__row">
+        {status.sceneNumber !== undefined && (
+          <span className="log-panel__scene">Escena {status.sceneNumber}</span>
+        )}
+        {status.attempt && (
+          <span className="log-panel__attempt">
+            Intento {status.attempt.current}/{status.attempt.max}
+          </span>
         )}
       </div>
+      <p className="log-panel__step">{status.step}</p>
+      {remainingMs !== null && remainingMs > 0 && (
+        <div className="log-panel__cooldown">
+          <div className="log-panel__cooldown-track">
+            <div className="log-panel__cooldown-fill" style={{ width: `${progress * 100}%` }} />
+          </div>
+          <span className="log-panel__cooldown-time">{formatCountdown(remainingMs)}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -159,7 +179,7 @@ function DebugPanel({ logs, onClear }: { logs: string[]; onClear: () => void }) 
 export default function App() {
   const [mode, setMode] = useState<Mode>('single');
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [status, setStatus] = useState<LogStatus | null>(null);
   const grantedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   async function processPendingWrite(pw: PendingWrite) {
@@ -237,8 +257,15 @@ export default function App() {
         if (msg.status?.pendingWrite) processPendingWrite(msg.status.pendingWrite);
         return;
       }
-      if (msg.action === Actions.DebugLog) {
-        setDebugLogs((prev) => [...prev.slice(-(MAX_DEBUG_LOGS - 1)), msg.text]);
+      if (msg.action === Actions.Log) {
+        setStatus({
+          sceneNumber: msg.sceneNumber,
+          step: msg.step,
+          kind: msg.kind,
+          attempt: msg.attempt,
+          cooldownMs: msg.cooldownMs,
+          receivedAt: Date.now(),
+        });
       }
     };
     browser.runtime.onMessage.addListener(
@@ -268,7 +295,7 @@ export default function App() {
         <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />
       )}
 
-      <DebugPanel logs={debugLogs} onClear={() => setDebugLogs([])} />
+      <StatusPanel status={status} />
 
       <p className="footer">v{browser.runtime.getManifest().version}</p>
     </div>

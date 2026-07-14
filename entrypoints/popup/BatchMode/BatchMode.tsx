@@ -24,10 +24,18 @@ interface ImagePrompt {
   style: string;
 }
 
+interface VideoPrompt {
+  motion: string;
+  camera_movement: string;
+}
+
+// script.json can give either the structured object (built field by field)
+// or a plain string (used as-is) for both prompt kinds — just those two
+// shapes, nothing else.
 interface SceneData {
   scene_number: number;
-  image_prompt: ImagePrompt;
-  video_prompt?: { motion: string; camera_movement: string };
+  image_prompt: ImagePrompt | string;
+  video_prompt?: VideoPrompt | string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -35,7 +43,8 @@ interface SceneData {
 const clean = (s?: string) => s?.trim() ?? '';
 
 function buildImagePrompt(scene: SceneData): string {
-  const { image_prompt: ip } = scene;
+  const ip = scene.image_prompt;
+  if (typeof ip === 'string') return clean(ip);
   const subjects = ip.subjects.map((s) => `${clean(s.description)} ${clean(s.action)}`).join(' ');
   return [subjects, ip.environment, ip.lighting, ip.composition, ip.style]
     .map(clean)
@@ -46,6 +55,7 @@ function buildImagePrompt(scene: SceneData): string {
 function buildVideoPrompt(scene: SceneData): string {
   const vp = scene.video_prompt;
   if (!vp) return VIDEO_PROMPT_PREFIX;
+  if (typeof vp === 'string') return `${VIDEO_PROMPT_PREFIX} ${clean(vp)}`.trim();
   const strip = (s?: string) => clean(s).replace(/\.$/, '');
   return `${VIDEO_PROMPT_PREFIX} ${strip(vp.motion)} ${strip(vp.camera_movement)}`.trim();
 }

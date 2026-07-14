@@ -5,7 +5,7 @@
 
 body {
   margin: 0;
-  min-width: 420px;
+  min-width: 340px;
 }
 
 #app {
@@ -207,65 +207,81 @@ h1 {
   margin: 12px 0 0;
 }
 
-.debug-panel {
+.log-panel {
+  --accent: #6366f1;
   margin-top: 14px;
-  border-top: 1px solid #2a2a2a;
   padding-top: 10px;
+  background: #111;
+  border-radius: 8px;
+  padding: 10px;
+  border-left: 3px solid var(--accent);
 }
 
-.debug-panel__header {
+.log-panel--info {
+  --accent: #6366f1;
+}
+
+.log-panel--retry {
+  --accent: #f59e0b;
+}
+
+.log-panel--success {
+  --accent: #22c55e;
+}
+
+.log-panel--error {
+  --accent: #ef4444;
+}
+
+.log-panel__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 11px;
-  opacity: 0.7;
-  margin-bottom: 6px;
-}
-
-.debug-panel__actions {
-  display: flex;
-  gap: 6px;
-}
-
-.debug-panel__actions button {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  border: 1px solid #3a3a3a;
-  background: #1a1a1a;
-  color: inherit;
-  cursor: pointer;
-}
-
-.debug-panel__actions button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.debug-panel__list {
-  max-height: 220px;
-  overflow-y: auto;
-  background: #111;
-  border-radius: 8px;
-  padding: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
-  line-height: 1.5;
+  opacity: 0.7;
+  margin-bottom: 4px;
 }
 
-.debug-panel__line {
-  white-space: pre-wrap;
-  word-break: break-word;
-  border-bottom: 1px solid #1f1f1f;
-  padding: 2px 0;
+.log-panel__scene {
+  font-weight: 600;
 }
 
-.debug-panel__line:last-child {
-  border-bottom: none;
+.log-panel__attempt {
+  color: var(--accent);
+  font-weight: 600;
 }
 
-.debug-panel__empty {
+.log-panel__step {
   margin: 0;
-  opacity: 0.5;
-  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+
+.log-panel__cooldown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.log-panel__cooldown-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: #2a2a2a;
+  overflow: hidden;
+}
+
+.log-panel__cooldown-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s linear;
+}
+
+.log-panel__cooldown-time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+  min-width: 28px;
+  text-align: right;
 }

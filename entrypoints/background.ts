@@ -1,4 +1,4 @@
-import { Actions, SceneStatuses, BatchModes } from '../lib/types';
+import { Actions, SceneStatuses, BatchModes, LogKinds } from '../lib/types';
 import { Alarms } from '../lib/constants';
 import type {
   PendingWrite,
@@ -8,6 +8,7 @@ import type {
   BatchMode,
   ExtensionMessage,
   FillPromptMessage,
+  LogKind,
 } from '../lib/types';
 
 interface BatchState {
@@ -36,6 +37,21 @@ const batchLoaded = browser.storage.session.get(STORAGE_KEY).then((stored) => {
 
 async function persistBatch() {
   await browser.storage.session.set({ [STORAGE_KEY]: batch });
+}
+
+// Step-level markers only (current step, retry N/max, cooldown before the
+// next retry or scene). Structured, not free text — see LogMessage. Forwarded
+// to the popup so it's visible without opening the service worker's own
+// DevTools console.
+function log(update: {
+  sceneNumber?: number;
+  step: string;
+  kind: LogKind;
+  attempt?: { current: number; max: number };
+  cooldownMs?: number;
+}) {
+  console.debug('[vibes-ext:bg]', update);
+  browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
 }
 
 async function ensurePopupTab() {
@@ -111,12 +127,18 @@ async function processScene(index: number) {
   await persistBatch();
   broadcastStatus();
 
-  // This just needs to outlast the content script's own worst-case retry
-  // chain (up to 3 generation attempts x ~5min poll each, plus for video up
-  // to 3 upload attempts x ~2min each) so this watchdog doesn't fire and
-  // race with legitimate in-progress retries — the content script's own
-  // explicit success/failure messages are what normally end a scene.
-  await resetSceneTimeout(batch.mode === BatchModes.Video ? 25 : 18);
+  log({
+    sceneNumber: scene.sceneNumber,
+    step: `Enviando prompt (escena ${index + 1}/${batch.scenes.length})`,
+    kind: LogKinds.Info,
+  });
+
+  // The content script's own explicit success/failure messages are what
+  // normally end a scene — this is just a fallback in case it hangs
+  // silently. Covers everything up to detecting the finished media batch
+  // (mode switch, start frame upload for video, prompt fill, generation
+  // polling).
+  await resetSceneTimeout(5);
 
   try {
     const response = await browser.tabs.sendMessage(batch.tabId, buildFillPromptMessage(scene));
@@ -133,8 +155,14 @@ async function processScene(index: number) {
       // Video scenes hit vibes.ai with two API calls (upload + generate)
       // instead of one — chaining them back-to-back across scenes is what
       // triggers the site's own rate limiting, so give video extra room.
-      const retryDelayMs = batch.mode === BatchModes.Video ? 8000 : 3000;
+      const retryDelayMs = batch.mode === BatchModes.Video ? 12000 : 4500;
       const nextIdx = index + 1;
+      log({
+        sceneNumber: scene.sceneNumber,
+        step: 'No se pudo enviar el prompt, saltando escena',
+        kind: LogKinds.Error,
+        cooldownMs: retryDelayMs,
+      });
       setTimeout(() => {
         if (batch?.active) processScene(nextIdx);
       }, retryDelayMs);
@@ -149,7 +177,13 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
   await persistBatch();
   broadcastStatus();
   const nextIdx = batch.currentIndex + 1;
-  const nextDelayMs = batch.mode === BatchModes.Video ? 8000 : 2500;
+  const nextDelayMs = batch.mode === BatchModes.Video ? 12000 : 4000;
+  log({
+    sceneNumber,
+    step: 'Escena lista, siguiente en breve',
+    kind: LogKinds.Success,
+    cooldownMs: nextDelayMs,
+  });
   setTimeout(() => {
     if (batch?.active) processScene(nextIdx);
   }, nextDelayMs);
@@ -160,6 +194,7 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
 // mark it and move on rather than sitting on it for the rest of the timeout.
 async function markSceneErrorAndAdvance(sceneNumber: number) {
   if (!batch) return;
+  log({ sceneNumber, step: 'Escena marcada como error, avanzando', kind: LogKinds.Error });
   batch.sceneStatuses[sceneNumber] = SceneStatuses.Error;
   batch.pendingWrite = null;
   await persistBatch();

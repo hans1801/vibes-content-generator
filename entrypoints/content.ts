@@ -1,16 +1,11 @@
-import { Actions, BatchModes } from '../lib/types';
-import type { ExtensionMessage, ContentResponse } from '../lib/types';
+import { Actions, BatchModes, LogKinds } from '../lib/types';
+import type { ExtensionMessage, ContentResponse, LogKind } from '../lib/types';
 import {
   ComposerSelectors,
   GallerySelectors,
   GenerateButtonSelectors,
   StartEndFrameSelectors,
 } from '../lib/constants';
-
-// Bump on every meaningful content-script change and check this is the
-// first line in the log panel after reloading — confirms the extension
-// actually picked up the latest build instead of a stale cached one.
-const CONTENT_SCRIPT_BUILD = 'v26-live-dialog-resolve';
 
 const WAIT_TIMEOUT_MS = 8000;
 // A project with a lot of accumulated images can take a while to fully
@@ -25,25 +20,23 @@ const MEDIA_POLL_INTERVAL_MS = 2000;
 const MEDIA_STABILIZE_MS = 20000;
 const MEDIA_POLL_MAX_ATTEMPTS = 150; // ~5 minutes, video renders slower than image
 
-const DEBUG = true;
-
-// DevTools on the vibes.ai tab is easy to miss/forget to open, so every log
-// also gets forwarded to the popup (if it's open) via runtime messaging —
-// same fire-and-forget pattern as the batch status broadcasts.
-function stringifyArg(a: unknown): string {
-  if (typeof a === 'string') return a;
-  try {
-    return JSON.stringify(a);
-  } catch {
-    return String(a);
-  }
+// Step-level markers only (current step, retry N/max, cooldown before the
+// next retry or scene) — not per-tick polling noise. Structured, not free
+// text: forwarded to the popup so it can render a live countdown for
+// `cooldownMs` and replace its whole status display on each new message
+// (so a fresh attempt visibly replaces the previous one instead of piling
+// up a scrollback).
+interface LogUpdate {
+  sceneNumber?: number;
+  step: string;
+  kind: LogKind;
+  attempt?: { current: number; max: number };
+  cooldownMs?: number;
 }
 
-function log(...args: unknown[]) {
-  if (!DEBUG) return;
-  console.debug('[vibes-ext]', ...args);
-  const text = args.map(stringifyArg).join(' ');
-  browser.runtime.sendMessage({ action: Actions.DebugLog, text }).catch(() => {});
+function log(update: LogUpdate) {
+  console.debug('[vibes-ext]', update);
+  browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
 }
 
 function waitFor<T>(
@@ -101,29 +94,20 @@ async function sleepAbortable(ms: number) {
 // Wait until the count hasn't changed for `quietMs` before trusting it.
 async function waitForStableCount(
   getCount: () => number,
-  label: string,
   quietMs = 800,
   timeoutMs = UPLOAD_WAIT_TIMEOUT_MS
 ): Promise<number> {
   const start = Date.now();
   let lastCount = getCount();
   let lastChangeAt = Date.now();
-  let lastLoggedTick = -1;
   while (Date.now() - start < timeoutMs && !aborted) {
     await sleep(WAIT_INTERVAL_MS);
     const count = getCount();
     if (count !== lastCount) {
-      log(label, 'count changed', lastCount, '->', count, '— still settling');
       lastCount = count;
       lastChangeAt = Date.now();
     } else if (Date.now() - lastChangeAt >= quietMs) {
-      log(label, 'count stable at', lastCount);
       return lastCount;
-    }
-    const tick = Math.floor((Date.now() - start) / 2000);
-    if (tick !== lastLoggedTick) {
-      log(label, 'still settling, currently', lastCount, 'after', tick * 2, 's');
-      lastLoggedTick = tick;
     }
   }
   return lastCount;
@@ -152,7 +136,7 @@ async function simulateClick(el: HTMLElement) {
   el.dispatchEvent(new PointerEvent('pointerup', pointerOpts));
   el.dispatchEvent(new MouseEvent('mouseup', opts));
   el.dispatchEvent(new MouseEvent('click', { ...opts, detail: 1 }));
-  await sleep(1000 + Math.random() * 1000);
+  await sleep(1500 + Math.random() * 1500);
 }
 
 function dataURLtoFile(dataurl: string, filename: string): File {
@@ -250,14 +234,9 @@ function findModeTriggerButton(): HTMLButtonElement | null {
 
 async function openModeMenu(): Promise<HTMLElement | null> {
   const trigger = findModeTriggerButton();
-  log('trigger found?', !!trigger, trigger?.textContent?.trim());
   if (!trigger) return null;
   await simulateClick(trigger);
-  const menu = await waitFor(() =>
-    document.querySelector<HTMLElement>('[role="menu"][data-state="open"]')
-  );
-  log('menu opened?', !!menu);
-  return menu;
+  return waitFor(() => document.querySelector<HTMLElement>('[role="menu"][data-state="open"]'));
 }
 
 async function clickMenuItem(menu: HTMLElement, target: 'image' | 'video'): Promise<boolean> {
@@ -267,16 +246,13 @@ async function clickMenuItem(menu: HTMLElement, target: 'image' | 'video'): Prom
     const text = btn.querySelector('span.flex_1')?.textContent?.trim() ?? btn.textContent?.trim();
     return text === wanted;
   });
-  log('item found?', !!item, wanted);
   if (!item) return false;
   await simulateClick(item);
   return true;
 }
 
 async function ensureMode(target: 'image' | 'video'): Promise<boolean> {
-  const before = getCurrentMode();
-  log('current mode before', before, '-> target', target);
-  if (before === target) return true;
+  if (getCurrentMode() === target) return true;
 
   const menu = await openModeMenu();
   if (!menu) return false;
@@ -284,7 +260,6 @@ async function ensureMode(target: 'image' | 'video'): Promise<boolean> {
   if (!(await clickMenuItem(menu, target))) return false;
 
   const result = await waitFor(() => (getCurrentMode() === target ? true : null));
-  log('current mode after', getCurrentMode(), 'switched?', result === true);
   return result === true;
 }
 
@@ -309,15 +284,25 @@ async function getSettledComposer(
 }
 
 async function fillComposer(composer: HTMLElement, prompt: string): Promise<boolean> {
+  const expected = prompt.trim();
   for (let attempt = 0; attempt < 4; attempt++) {
     composer.focus();
+    // Clear first: vibes.ai can leave stray text in the composer (e.g. the
+    // uploaded file's name, left over after attaching a start frame) —
+    // inserting on top of that without clearing would leave it mixed in
+    // with, or entirely masking, the real prompt.
+    document.execCommand('selectAll');
     document.execCommand('insertText', false, prompt);
     await sleep(200);
-    if ((composer.textContent ?? '').trim().length > 0) {
-      log('composer filled on attempt', attempt + 1);
+    // Checking for "non-empty" isn't enough: if execCommand silently no-ops
+    // (the Lexical-not-wired-up-yet race this retry loop exists for) but the
+    // composer already had leftover text in it, a presence check would
+    // wrongly report success with the wrong text still sitting there. Only
+    // trust it once the composer's content actually matches what we tried
+    // to write.
+    if ((composer.textContent ?? '').trim() === expected) {
       return true;
     }
-    log('composer still empty after attempt', attempt + 1, '- retrying');
   }
   return false;
 }
@@ -328,13 +313,13 @@ async function fillComposer(composer: HTMLElement, prompt: string): Promise<bool
 // 1. toggle the "Start, end frame" panel open, click "Add start frame"
 // 2. in the "Select start frame" picker, click "Upload" and drop the file in
 //    the nested "Upload images" dialog, then confirm its own "Upload" button
-// 3. back in the picker, click the freshly-uploaded tile (identified by its
-//    alt text matching the uploaded filename) and confirm with "Add to video"
+// 3. back in the picker, click the freshly-uploaded tile — it lands first,
+//    proven by the grid's image count exceeding its pre-upload baseline —
+//    and confirm with "Add to video"
 async function ensureStartEndFramePanel(): Promise<boolean> {
   if (findButtonByText(document, 'Add start frame')) return true;
 
   const toggle = document.querySelector<HTMLButtonElement>(StartEndFrameSelectors.Toggle);
-  log('start/end frame toggle found?', !!toggle);
   if (!toggle) return false;
   await simulateClick(toggle);
 
@@ -357,12 +342,8 @@ function closeAnyOpenDialog() {
 // attaches its own reference image instead of silently reusing this one.
 async function removeStartFrame(): Promise<void> {
   const btn = document.querySelector<HTMLButtonElement>('button[aria-label="Remove start frame"]');
-  if (!btn) {
-    log('no "Remove start frame" button found — nothing to clear');
-    return;
-  }
+  if (!btn) return;
   await simulateClick(btn);
-  log('start frame removed after sending prompt');
 }
 
 // The global "Upload failed" toast is a real server-side failure signal
@@ -377,8 +358,8 @@ function countUploadFailedToasts(): number {
   ).length;
 }
 
-const MAX_UPLOAD_ATTEMPTS = 3;
-const UPLOAD_RETRY_DELAY_MS = 8000;
+const MAX_UPLOAD_ATTEMPTS = 5;
+const UPLOAD_RETRY_DELAY_MS = 12000;
 
 type UploadAttemptResult =
   | { status: 'success'; pickerDialogAfter: HTMLElement; finalCount: number }
@@ -394,25 +375,16 @@ async function attemptUpload(
   const uploadFailBaseline = countUploadFailedToasts();
 
   const uploadNavBtn = findButtonByText(pickerDialog, 'Upload');
-  if (!uploadNavBtn) {
-    log('picker "Upload" nav button not found');
-    return { status: 'failed' };
-  }
+  if (!uploadNavBtn) return { status: 'failed' };
   await simulateClick(uploadNavBtn);
 
   const uploadDialog = await findDialogByHeading('Upload images');
-  if (!uploadDialog) {
-    log('"Upload images" dialog not found');
-    return { status: 'failed' };
-  }
+  if (!uploadDialog) return { status: 'failed' };
 
   const fileInput =
     uploadDialog.querySelector<HTMLInputElement>('input[type="file"]') ??
     document.querySelector<HTMLInputElement>('input[type="file"]');
-  if (!fileInput) {
-    log('file input not found in upload dialog');
-    return { status: 'failed' };
-  }
+  if (!fileInput) return { status: 'failed' };
 
   const file = dataURLtoFile(imageBase64, imageName);
   const dt = new DataTransfer();
@@ -420,12 +392,12 @@ async function attemptUpload(
   fileInput.files = dt.files;
   fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // The confirm button enables in the SAME tick as this dispatch (confirmed
-  // via logs) — clicking it immediately means "attach file" and "confirm
-  // upload" fire back-to-back with zero gap, which is what was triggering
-  // vibes.ai's rate limiting. Force a real pause here regardless of how fast
-  // the button itself becomes clickable.
-  await sleep(1500 + Math.random() * 1000);
+  // The confirm button enables in the SAME tick as this dispatch — clicking
+  // it immediately means "attach file" and "confirm upload" fire back-to-back
+  // with zero gap, which is what was triggering vibes.ai's rate limiting.
+  // Force a real pause here regardless of how fast the button itself becomes
+  // clickable.
+  await sleep(2000 + Math.random() * 1500);
 
   // Confirm as soon as it's clickable — this is the normal, expected click
   // (it's what a real user would do too); it does not mean upload finished.
@@ -433,17 +405,11 @@ async function attemptUpload(
     const btn = findButtonByText(uploadDialog, 'Upload');
     return btn && !btn.disabled ? btn : null;
   });
-  if (!confirmBtn) {
-    log('upload confirm button never became clickable');
-    return { status: 'failed' };
-  }
+  if (!confirmBtn) return { status: 'failed' };
   await simulateClick(confirmBtn);
 
   const pickerDialogAfter = await findDialogByHeading('Select start frame', hasAddToVideoButton);
-  if (!pickerDialogAfter) {
-    log('picker dialog not found after upload');
-    return { status: 'failed' };
-  }
+  if (!pickerDialogAfter) return { status: 'failed' };
 
   // pickerDialogAfter can go stale mid-wait: vibes.ai can remount the
   // "Select start frame" dialog again after this point (e.g. swapping the
@@ -461,74 +427,51 @@ async function attemptUpload(
   const getLiveDialog = () => resolveDialogByHeadingSync('Select start frame', hasAddToVideoButton);
   const getLiveCount = () => getLiveDialog()?.querySelectorAll('img[data-nimg="fill"]').length ?? 0;
 
-  log('waiting for post-upload grid to exceed baseline of', baselineTotalImages, 'images');
   const deadline = Date.now() + UPLOAD_WAIT_TIMEOUT_MS;
   let finalCount = baselineTotalImages;
   while (Date.now() < deadline) {
     if (aborted) return { status: 'aborted' };
-    if (countUploadFailedToasts() > uploadFailBaseline) {
-      log('"Upload failed" toast detected');
-      return { status: 'failed' };
-    }
+    if (countUploadFailedToasts() > uploadFailBaseline) return { status: 'failed' };
 
-    finalCount = await waitForStableCount(
-      getLiveCount,
-      'post-upload grid',
-      800,
-      Math.min(3000, deadline - Date.now())
-    );
+    finalCount = await waitForStableCount(getLiveCount, 800, Math.min(3000, deadline - Date.now()));
     if (finalCount > baselineTotalImages) {
       const liveDialog = getLiveDialog() ?? pickerDialogAfter;
       return { status: 'success', pickerDialogAfter: liveDialog, finalCount };
     }
-    if (countUploadFailedToasts() > uploadFailBaseline) {
-      log('"Upload failed" toast detected');
-      return { status: 'failed' };
-    }
-    log(
-      'post-upload grid at',
-      finalCount,
-      'vs baseline',
-      baselineTotalImages,
-      '— real upload still pending, rechecking'
-    );
+    if (countUploadFailedToasts() > uploadFailBaseline) return { status: 'failed' };
     await sleep(500);
   }
-  log(
-    'grid image count (',
-    finalCount,
-    ') never exceeded baseline (',
-    baselineTotalImages,
-    ') within the timeout'
-  );
   return { status: 'failed' };
 }
 
-async function attachStartFrame(imageBase64: string, imageName: string): Promise<boolean> {
-  const result = await attachStartFrameAttempt(imageBase64, imageName);
+async function attachStartFrame(
+  imageBase64: string,
+  imageName: string,
+  sceneNumber: number | undefined
+): Promise<boolean> {
+  log({ sceneNumber, step: 'Adjuntando start frame', kind: LogKinds.Info });
+  const result = await attachStartFrameAttempt(imageBase64, imageName, sceneNumber);
   if (!result) {
-    log('attachStartFrame failed — closing any leftover dialog before giving up');
+    log({ sceneNumber, step: 'No se pudo adjuntar el start frame', kind: LogKinds.Error });
     closeAnyOpenDialog();
     await sleep(300);
   }
   return result;
 }
 
-async function attachStartFrameAttempt(imageBase64: string, imageName: string): Promise<boolean> {
-  if (!(await ensureStartEndFramePanel())) {
-    log('start/end frame panel never opened');
-    return false;
-  }
+async function attachStartFrameAttempt(
+  imageBase64: string,
+  imageName: string,
+  sceneNumber: number | undefined
+): Promise<boolean> {
+  if (!(await ensureStartEndFramePanel())) return false;
 
   const addStartBtn = findButtonByText(document, 'Add start frame');
   if (!addStartBtn) return false;
   await simulateClick(addStartBtn);
 
   const pickerDialog = await findDialogByHeading('Select start frame', hasAddToVideoButton);
-  if (!pickerDialog) {
-    log('"Select start frame" dialog not found');
-    return false;
-  }
+  if (!pickerDialog) return false;
 
   // The confirm "Upload" button inside the nested dialog enables the instant
   // a local file is attached — it is NOT a signal that the real network
@@ -539,8 +482,7 @@ async function attachStartFrameAttempt(imageBase64: string, imageName: string): 
   // initial render has settled, or a still-populating "This project" tab
   // looks identical to a fresh upload landing.
   const baselineTotalImages = await waitForStableCount(
-    () => pickerDialog.querySelectorAll('img[data-nimg="fill"]').length,
-    'baseline grid'
+    () => pickerDialog.querySelectorAll('img[data-nimg="fill"]').length
   );
 
   let uploadResult: UploadAttemptResult = { status: 'failed' };
@@ -549,38 +491,50 @@ async function attachStartFrameAttempt(imageBase64: string, imageName: string): 
       uploadResult = { status: 'aborted' };
       break;
     }
+    log({
+      sceneNumber,
+      step: 'Subiendo start frame',
+      kind: LogKinds.Info,
+      attempt: { current: attempt, max: MAX_UPLOAD_ATTEMPTS },
+    });
     uploadResult = await attemptUpload(pickerDialog, imageBase64, imageName, baselineTotalImages);
     if (uploadResult.status !== 'failed') break;
     if (attempt >= MAX_UPLOAD_ATTEMPTS) break;
-    log('upload attempt', attempt, 'failed — retrying in', UPLOAD_RETRY_DELAY_MS / 1000, 's');
+    log({
+      sceneNumber,
+      step: 'Subida falló, reintentando',
+      kind: LogKinds.Retry,
+      attempt: { current: attempt, max: MAX_UPLOAD_ATTEMPTS },
+      cooldownMs: UPLOAD_RETRY_DELAY_MS,
+    });
     await sleepAbortable(UPLOAD_RETRY_DELAY_MS);
+
+    // A "failed" result can mean the grid-growth detection just missed a
+    // real, successful upload (e.g. its poll window ran out right as the
+    // file landed) rather than the upload itself actually failing —
+    // retrying blindly in that case re-uploads the same file and leaves a
+    // duplicate in the project. Re-check the live count before retrying: if
+    // it already grew past baseline, the previous attempt did land, so treat
+    // it as success instead of uploading again.
+    const liveDialog =
+      resolveDialogByHeadingSync('Select start frame', hasAddToVideoButton) ?? pickerDialog;
+    const liveCount = liveDialog.querySelectorAll('img[data-nimg="fill"]').length;
+    if (liveCount > baselineTotalImages) {
+      uploadResult = { status: 'success', pickerDialogAfter: liveDialog, finalCount: liveCount };
+      break;
+    }
   }
 
-  if (uploadResult.status !== 'success') {
-    log('start frame upload never succeeded after', MAX_UPLOAD_ATTEMPTS, 'attempts');
-    return false;
-  }
+  if (uploadResult.status !== 'success') return false;
+  log({ sceneNumber, step: 'Start frame subido', kind: LogKinds.Success });
 
-  const { pickerDialogAfter, finalCount } = uploadResult;
-  log(
-    'grid image count grew from',
-    baselineTotalImages,
-    'to',
-    finalCount,
-    '— fresh upload should now be the first tile'
-  );
+  const { pickerDialogAfter } = uploadResult;
 
   const selected = await selectFirstTile(pickerDialogAfter);
-  if (!selected) {
-    log('could not select the first tile with any click strategy');
-    return false;
-  }
+  if (!selected) return false;
 
   const addToVideoBtn = findButtonByText(pickerDialogAfter, 'Add to video');
-  if (!addToVideoBtn || addToVideoBtn.disabled) {
-    log('"Add to video" not enabled after selecting the tile');
-    return false;
-  }
+  if (!addToVideoBtn || addToVideoBtn.disabled) return false;
   await simulateClick(addToVideoBtn);
 
   return true;
@@ -589,59 +543,27 @@ async function attachStartFrameAttempt(imageBase64: string, imageName: string): 
 // Selecting a tile just toggles a CSS class (blue border) picked up from
 // component state — there's no visible attribute we can poll for directly.
 // The "Add to video" button unlocking is the real, observable proof the
-// click landed, so each strategy is tried and checked against that before
-// moving to the next. Needed because a fully synthetic pointer/mouse
-// sequence sometimes isn't enough for whatever gesture recognizer this grid
-// uses (Framer Motion-style tap handlers are known to be picky about this).
+// click landed. A fully synthetic pointer/mouse sequence (simulateClick) is
+// what this grid's tap handler actually needs — verified across every
+// observed run.
 async function selectFirstTile(pickerDialog: HTMLElement): Promise<boolean> {
-  const findFirstTile = (): { tile: HTMLElement; img: HTMLImageElement } | null => {
+  const findFirstTile = (): HTMLElement | null => {
     const img = pickerDialog.querySelector<HTMLImageElement>('img[data-nimg="fill"]');
     if (!img) return null;
-    const tile = img.closest<HTMLElement>('div') ?? img.parentElement;
-    return tile ? { tile, img } : null;
+    return img.closest<HTMLElement>('div') ?? img.parentElement;
   };
-
-  const first = await waitFor(findFirstTile, UPLOAD_WAIT_TIMEOUT_MS);
-  if (!first) {
-    log('no tile found in picker grid at all');
-    return false;
-  }
-  log('first tile in grid — alt:', first.img.alt);
 
   const isAddToVideoEnabled = () => {
     const btn = findButtonByText(pickerDialog, 'Add to video');
     return !!btn && !btn.disabled;
   };
 
-  const strategies: Array<(el: { tile: HTMLElement; img: HTMLImageElement }) => Promise<void>> = [
-    ({ tile }) => simulateClick(tile),
-    async ({ tile }) => {
-      tile.click();
-      await sleep(1000 + Math.random() * 1000);
-    },
-    ({ img }) => simulateClick(img),
-    async ({ img }) => {
-      img.click();
-      await sleep(1000 + Math.random() * 1000);
-    },
-  ];
+  const first = await waitFor(findFirstTile, UPLOAD_WAIT_TIMEOUT_MS);
+  if (!first) return false;
 
-  for (const [i, strategy] of strategies.entries()) {
-    const target = findFirstTile();
-    if (!target) {
-      log('first tile detached before click strategy', i + 1, 'could fire');
-      return false;
-    }
-    await strategy(target);
-    const result = await waitFor(() => (isAddToVideoEnabled() ? true : null), 2500);
-    if (result) {
-      log('tile selected via click strategy', i + 1);
-      return true;
-    }
-    log('click strategy', i + 1, 'did not enable "Add to video", trying next');
-  }
-
-  return false;
+  await simulateClick(first);
+  const result = await waitFor(() => (isAddToVideoEnabled() ? true : null), 2500);
+  return result === true;
 }
 
 // ── Gallery polling (shared by image and video generation) ───────────────────
@@ -726,7 +648,6 @@ type MediaPollResult =
 
 async function waitForMediaBatch(
   beforeIds: Set<string>,
-  sceneNumber: number,
   errorBaseline: number
 ): Promise<MediaPollResult> {
   for (let attempts = 0; attempts < MEDIA_POLL_MAX_ATTEMPTS; attempts++) {
@@ -735,13 +656,6 @@ async function waitForMediaBatch(
 
     const batchMedia = findNewBatch(beforeIds);
     if (batchMedia) {
-      log(
-        'scene',
-        sceneNumber,
-        'batch detected, waiting',
-        MEDIA_STABILIZE_MS / 1000,
-        's for the CDN file to settle before downloading'
-      );
       await sleepAbortable(MEDIA_STABILIZE_MS);
       if (aborted) return { status: 'aborted' };
       // Re-read the src right before downloading — if the CDN swapped the
@@ -756,8 +670,8 @@ async function waitForMediaBatch(
   return { status: 'timeout' };
 }
 
-const MAX_GENERATION_ATTEMPTS = 3;
-const GENERATION_RETRY_DELAY_MS = 20000;
+const MAX_GENERATION_ATTEMPTS = 5;
+const GENERATION_RETRY_DELAY_MS = 25000;
 
 // On "Couldn't generate", vibes.ai's own flakiness (not the prompt) is the
 // usual culprit — the same prompt often succeeds on a plain retry. Wait,
@@ -771,20 +685,21 @@ async function generateWithRetries(
   let errorBaseline = countGenerationErrors();
 
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
-    if (aborted) {
-      log('scene', sceneNumber, 'batch stopped — abandoning mid-generation');
-      return;
-    }
+    if (aborted) return;
 
-    const result = await waitForMediaBatch(beforeIds, sceneNumber, errorBaseline);
+    log({
+      sceneNumber,
+      step: 'Esperando generación',
+      kind: LogKinds.Info,
+      attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
+      cooldownMs: MEDIA_POLL_MAX_ATTEMPTS * MEDIA_POLL_INTERVAL_MS,
+    });
+    const result = await waitForMediaBatch(beforeIds, errorBaseline);
 
-    if (result.status === 'aborted') {
-      log('scene', sceneNumber, 'batch stopped — abandoning mid-generation');
-      return;
-    }
+    if (result.status === 'aborted') return;
 
     if (result.status === 'success') {
-      log('scene', sceneNumber, 'ready, urls', result.urls);
+      log({ sceneNumber, step: 'Media lista, descargando', kind: LogKinds.Success });
       await browser.runtime.sendMessage({
         action: Actions.DownloadMediaDirect,
         urls: result.urls,
@@ -794,37 +709,36 @@ async function generateWithRetries(
     }
 
     if (result.status === 'timeout') {
-      log('media poll timed out for scene', sceneNumber);
+      const timeoutMinutes = (MEDIA_POLL_MAX_ATTEMPTS * MEDIA_POLL_INTERVAL_MS) / 60000;
+      log({
+        sceneNumber,
+        step: `Tiempo agotado esperando media (${timeoutMinutes} min)`,
+        kind: LogKinds.Error,
+      });
       return;
     }
 
     // status === 'error'
     if (attempt >= MAX_GENERATION_ATTEMPTS) {
-      log(
-        'scene',
+      log({
         sceneNumber,
-        'still failing after',
-        attempt,
-        'attempts — skipping to next scene'
-      );
+        step: 'Generación falló, saltando escena',
+        kind: LogKinds.Error,
+        attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
+      });
       await browser.runtime.sendMessage({ action: Actions.SceneFailed, sceneNumber });
       return;
     }
 
-    log(
-      'scene',
+    log({
       sceneNumber,
-      '"Couldn\'t generate" on attempt',
-      attempt,
-      '— retrying same prompt in',
-      GENERATION_RETRY_DELAY_MS / 1000,
-      's'
-    );
+      step: 'Generación falló, reintentando',
+      kind: LogKinds.Retry,
+      attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
+      cooldownMs: GENERATION_RETRY_DELAY_MS,
+    });
     await sleepAbortable(GENERATION_RETRY_DELAY_MS);
-    if (aborted) {
-      log('scene', sceneNumber, 'batch stopped during retry wait — abandoning');
-      return;
-    }
+    if (aborted) return;
 
     // Reset the baseline to include the error(s) we just handled, so the
     // NEXT attempt's check only fires on a genuinely new failure card
@@ -833,7 +747,7 @@ async function generateWithRetries(
 
     const clicked = await clickGenerate();
     if (!clicked) {
-      log('scene', sceneNumber, 'retry could not click Generate — skipping to next scene');
+      log({ sceneNumber, step: 'No se pudo reintentar, saltando escena', kind: LogKinds.Error });
       await browser.runtime.sendMessage({ action: Actions.SceneFailed, sceneNumber });
       return;
     }
@@ -847,6 +761,7 @@ async function handleImageMode(
   sceneNumber: number | undefined,
   sendResponse: (r: ContentResponse) => void
 ) {
+  log({ sceneNumber, step: 'Generando imagen', kind: LogKinds.Info });
   const switched = await ensureMode(BatchModes.Image);
   if (!switched) {
     sendResponse({ success: false, error: 'No se pudo activar el modo image.' });
@@ -868,13 +783,15 @@ async function handleImageMode(
   const beforeIds = new Set(getReadyThumbnails().map((t) => t.mediaId));
 
   const clickGenerate = async (): Promise<boolean> => {
-    // Defensive: a failed generation can leave the composer empty.
-    if ((composer.textContent ?? '').trim().length === 0) {
+    // Defensive: a failed generation (or the composer picking up stray text
+    // from elsewhere on the page) can leave it empty or wrong ahead of a
+    // retry — re-fill unless it already holds exactly the prompt we want.
+    if ((composer.textContent ?? '').trim() !== prompt.trim()) {
       if (!(await fillComposer(composer, prompt))) return false;
     }
     // A small buffer before hitting Generate — clicking the instant it
     // enables, scene after scene, is what triggers vibes.ai's rate limiting.
-    await sleep(800);
+    await sleep(1300);
     const btn = await waitForEnabledButton(GenerateButtonSelectors.Image);
     if (!btn) return false;
     await simulateClick(btn);
@@ -897,6 +814,7 @@ async function handleVideoMode(
   sceneNumber: number | undefined,
   sendResponse: (r: ContentResponse) => void
 ) {
+  log({ sceneNumber, step: 'Generando video', kind: LogKinds.Info });
   const switched = await ensureMode(BatchModes.Video);
   if (!switched) {
     sendResponse({ success: false, error: 'No se pudo activar el modo video.' });
@@ -904,7 +822,7 @@ async function handleVideoMode(
   }
 
   if (imageBase64 && imageName) {
-    const attached = await attachStartFrame(imageBase64, imageName);
+    const attached = await attachStartFrame(imageBase64, imageName, sceneNumber);
     if (!attached) {
       sendResponse({ success: false, error: 'No se pudo adjuntar el start frame.' });
       return;
@@ -934,7 +852,7 @@ async function handleVideoMode(
     }
     // A small buffer before hitting Generate — clicking the instant it
     // enables, scene after scene, is what triggers vibes.ai's rate limiting.
-    await sleep(800);
+    await sleep(1300);
     const btn = await waitForEnabledButton(GenerateButtonSelectors.Video);
     if (!btn) return false;
     await simulateClick(btn);
@@ -963,12 +881,10 @@ async function handleVideoMode(
 export default defineContentScript({
   matches: ['*://*.vibes.ai/*', '*://vibes.ai/*'],
   main() {
-    log('content script loaded — build', CONTENT_SCRIPT_BUILD);
     browser.runtime.onMessage.addListener(
       (message: ExtensionMessage, _sender, sendResponse: (r: ContentResponse) => void) => {
         if (message.action === Actions.StopBatch) {
           aborted = true;
-          log('batch stop received — aborting in-flight work');
           return false;
         }
 
