@@ -11,8 +11,8 @@ Chrome extension (WXT + React) that automates image/video generation on [vibes.a
 Clone the repo and install dependencies:
 
 ```bash
-git clone https://github.com/hans1801/vibes-image-video-generator.git
-cd vibes-image-video-generator
+git clone https://github.com/hans1801/vibes-content-generator.git
+cd vibes-content-generator
 npm install
 ```
 
