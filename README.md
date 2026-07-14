@@ -4,7 +4,7 @@ Chrome extension (WXT + React) that automates image/video generation on [vibes.a
 
 ## Prerequisites
 
-- Node.js
+- [Node.js](https://nodejs.org/es/download)
 
 ## Installation
 
