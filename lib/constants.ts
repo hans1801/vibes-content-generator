@@ -10,8 +10,8 @@ export const GallerySelectors = {
 } as const;
 
 export const GenerateButtonSelectors = {
-  Image: 'button[aria-label="Generate"][data-analytics-prompt-type="images"]',
-  Video: 'button[aria-label="Generate"][data-analytics-prompt-type="videos"]',
+  Image: 'button[data-analytics-id="send_message"][data-analytics-prompt-type="images"]',
+  Video: 'button[data-analytics-id="send_message"][data-analytics-prompt-type="videos"]',
 } as const;
 
 export const StartEndFrameSelectors = {

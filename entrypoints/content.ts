@@ -150,13 +150,24 @@ function dataURLtoFile(dataurl: string, filename: string): File {
   return new File([u8arr], filename, { type: mime });
 }
 
-function findButtonByText(scope: ParentNode, text: string): HTMLButtonElement | null {
+// `text` accepts an array so callers can pass the known en/es translations —
+// the only 2 UI languages vibes.ai currently ships — instead of a single
+// locale-fixed string.
+function findButtonByText(scope: ParentNode, text: string | string[]): HTMLButtonElement | null {
+  const candidates = Array.isArray(text) ? text : [text];
   return (
-    Array.from(scope.querySelectorAll<HTMLButtonElement>('button')).find(
-      (btn) => btn.textContent?.trim() === text
+    Array.from(scope.querySelectorAll<HTMLButtonElement>('button')).find((btn) =>
+      candidates.includes(btn.textContent?.trim() ?? '')
     ) ?? null
   );
 }
+
+const ADD_TO_VIDEO_LABELS = ['Add to video', 'Añadir al vídeo'];
+// Confirmed unchanged between en/es on vibes.ai — not a translation gap.
+const ADD_START_FRAME_LABELS = ['Add start frame'];
+const UPLOAD_LABELS = ['Upload', 'Subir'];
+const SELECT_START_FRAME_HEADINGS = ['Select start frame', 'Seleccionar fotograma inicial'];
+const UPLOAD_IMAGES_HEADINGS = ['Upload images', 'Cargar imágenes'];
 
 // vibes.ai's picker/upload dialogs aren't marked with role="dialog" in the
 // markup we inspected, so there's no reliable container selector. Instead we
@@ -170,12 +181,15 @@ function findButtonByText(scope: ParentNode, text: string): HTMLButtonElement | 
 // X — already 2 buttons) sitting as a SIBLING of the body that holds the
 // actual image grid, so the climb would lock onto the header alone and miss
 // the grid entirely. Callers that need the grid pass a stricter check.
+// `headingText` accepts an array so callers can pass the known en/es
+// translations — the only 2 UI languages vibes.ai currently ships.
 function resolveDialogByHeadingSync(
-  headingText: string,
+  headingText: string | string[],
   isDone: (node: HTMLElement) => boolean
 ): HTMLElement | null {
+  const candidates = Array.isArray(headingText) ? headingText : [headingText];
   const heading = Array.from(document.querySelectorAll<HTMLElement>('div,span,h1,h2,h3')).find(
-    (el) => el.textContent?.trim() === headingText && el.children.length === 0
+    (el) => candidates.includes(el.textContent?.trim() ?? '') && el.children.length === 0
   );
   if (!heading) return null;
   let node: HTMLElement | null = heading.parentElement;
@@ -187,7 +201,7 @@ function resolveDialogByHeadingSync(
 }
 
 function findDialogByHeading(
-  headingText: string,
+  headingText: string | string[],
   isDone: (node: HTMLElement) => boolean = (node) =>
     node.querySelectorAll('img, button').length >= 2,
   timeoutMs = UPLOAD_WAIT_TIMEOUT_MS
@@ -198,7 +212,7 @@ function findDialogByHeading(
 // "Add to video" only exists once, at the very bottom of the full "Select
 // start frame" modal — a reliable marker of the complete dialog regardless
 // of how many images are currently in the grid (even zero).
-const hasAddToVideoButton = (node: HTMLElement) => !!findButtonByText(node, 'Add to video');
+const hasAddToVideoButton = (node: HTMLElement) => !!findButtonByText(node, ADD_TO_VIDEO_LABELS);
 
 // ── Mode switch (Video/Image/Lip sync toggle) ─────────────────────────────────
 
@@ -209,10 +223,18 @@ const hasAddToVideoButton = (node: HTMLElement) => !!findButtonByText(node, 'Add
 // appears both on the mode-toggle trigger and inside its dropdown menu.
 function getCurrentMode(): 'image' | 'video' | null {
   const composer = document.querySelector<HTMLElement>(ComposerSelectors.Input);
-  const label = composer?.getAttribute('aria-label') ?? composer?.getAttribute('title') ?? '';
+  const label = stripAccents(
+    composer?.getAttribute('aria-label') ?? composer?.getAttribute('title') ?? ''
+  );
   if (label.includes('image')) return BatchModes.Image;
   if (label.includes('video')) return BatchModes.Video;
   return null;
+}
+
+// Strips diacritics (é, í, ñ, ...) so locale text comparisons aren't tripped
+// up by accents — e.g. Spanish "Vídeo" vs the "vid" prefix we match against.
+function stripAccents(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
 // Trigger button for the mode dropdown looks identical (text-wise) to the
@@ -220,13 +242,18 @@ function getCurrentMode(): 'image' | 'video' | null {
 // a menuitem, and it's wrapped by the radix dropdown trigger container
 // (aria-haspopup="menu"). The other such trigger on the toolbar is
 // "Ingredients", filtered out by the label check.
+//
+// Label check uses a prefix match ("ima"/"vid") instead of an exact string
+// so it survives the en/es locale switch (Image/Imagen, Vídeo/Video) — the
+// only two UI languages vibes.ai currently ships. Accents are stripped first
+// since es renders "Vídeo" with an í, which breaks a raw "vid" prefix match.
 function findModeTriggerButton(): HTMLButtonElement | null {
   const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'));
   return (
     buttons.find((btn) => {
       if (btn.getAttribute('role') === 'menuitem') return false;
-      const label = btn.querySelector('span')?.textContent?.trim();
-      if (label !== 'Video' && label !== 'Image') return false;
+      const label = stripAccents(btn.querySelector('span')?.textContent?.trim().toLowerCase() ?? '');
+      if (!label.startsWith('vid') && !label.startsWith('ima')) return false;
       return !!btn.closest('[aria-haspopup="menu"]');
     }) ?? null
   );
@@ -240,11 +267,19 @@ async function openModeMenu(): Promise<HTMLElement | null> {
 }
 
 async function clickMenuItem(menu: HTMLElement, target: 'image' | 'video'): Promise<boolean> {
-  const wanted = target === BatchModes.Image ? 'Image' : 'Video';
+  // Prefix match ("ima"/"vid") instead of exact text so this survives the
+  // en/es locale switch (Image/Imagen, Vídeo/Video) — the only two UI
+  // languages vibes.ai currently ships. Accents stripped first since es
+  // renders "Vídeo" with an í, which breaks a raw "vid" prefix match.
+  const wantedPrefix = target === BatchModes.Image ? 'ima' : 'vid';
   const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
   const item = items.find((btn) => {
-    const text = btn.querySelector('span.flex_1')?.textContent?.trim() ?? btn.textContent?.trim();
-    return text === wanted;
+    const text = stripAccents(
+      (
+        btn.querySelector('span.flex_1')?.textContent?.trim() ?? btn.textContent?.trim() ?? ''
+      ).toLowerCase()
+    );
+    return text.startsWith(wantedPrefix);
   });
   if (!item) return false;
   await simulateClick(item);
@@ -277,7 +312,9 @@ async function getSettledComposer(
 ): Promise<HTMLElement | null> {
   return waitFor(() => {
     const composer = document.querySelector<HTMLElement>(ComposerSelectors.Input);
-    const label = composer?.getAttribute('aria-label') ?? composer?.getAttribute('title') ?? '';
+    const label = stripAccents(
+      composer?.getAttribute('aria-label') ?? composer?.getAttribute('title') ?? ''
+    );
     const wanted = target === BatchModes.Image ? 'image' : 'video';
     return composer && label.includes(wanted) ? composer : null;
   }, timeoutMs);
@@ -317,13 +354,13 @@ async function fillComposer(composer: HTMLElement, prompt: string): Promise<bool
 //    proven by the grid's image count exceeding its pre-upload baseline —
 //    and confirm with "Add to video"
 async function ensureStartEndFramePanel(): Promise<boolean> {
-  if (findButtonByText(document, 'Add start frame')) return true;
+  if (findButtonByText(document, ADD_START_FRAME_LABELS)) return true;
 
   const toggle = document.querySelector<HTMLButtonElement>(StartEndFrameSelectors.Toggle);
   if (!toggle) return false;
   await simulateClick(toggle);
 
-  const found = await waitFor(() => findButtonByText(document, 'Add start frame'));
+  const found = await waitFor(() => findButtonByText(document, ADD_START_FRAME_LABELS));
   return !!found;
 }
 
@@ -340,8 +377,17 @@ function closeAnyOpenDialog() {
 // After sending a video prompt, vibes.ai keeps the "Start frame" thumbnail
 // attached to the composer for next time — clear it so the next scene
 // attaches its own reference image instead of silently reusing this one.
+//
+// "Remove start frame" (en) and "Eliminar el marco de inicio" (es) share no
+// common substring, so unlike the Image/Video prefix trick this needs an
+// explicit allowlist of the known translations — the only 2 UI languages
+// vibes.ai currently ships.
+const REMOVE_START_FRAME_LABELS = ['Remove start frame', 'Eliminar el marco de inicio'];
+
 async function removeStartFrame(): Promise<void> {
-  const btn = document.querySelector<HTMLButtonElement>('button[aria-label="Remove start frame"]');
+  const btn = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find((el) =>
+    REMOVE_START_FRAME_LABELS.includes(el.getAttribute('aria-label') ?? '')
+  );
   if (!btn) return;
   await simulateClick(btn);
 }
@@ -374,11 +420,11 @@ async function attemptUpload(
 ): Promise<UploadAttemptResult> {
   const uploadFailBaseline = countUploadFailedToasts();
 
-  const uploadNavBtn = findButtonByText(pickerDialog, 'Upload');
+  const uploadNavBtn = findButtonByText(pickerDialog, UPLOAD_LABELS);
   if (!uploadNavBtn) return { status: 'failed' };
   await simulateClick(uploadNavBtn);
 
-  const uploadDialog = await findDialogByHeading('Upload images');
+  const uploadDialog = await findDialogByHeading(UPLOAD_IMAGES_HEADINGS);
   if (!uploadDialog) return { status: 'failed' };
 
   const fileInput =
@@ -402,13 +448,13 @@ async function attemptUpload(
   // Confirm as soon as it's clickable — this is the normal, expected click
   // (it's what a real user would do too); it does not mean upload finished.
   const confirmBtn = await waitFor(() => {
-    const btn = findButtonByText(uploadDialog, 'Upload');
+    const btn = findButtonByText(uploadDialog, UPLOAD_LABELS);
     return btn && !btn.disabled ? btn : null;
   });
   if (!confirmBtn) return { status: 'failed' };
   await simulateClick(confirmBtn);
 
-  const pickerDialogAfter = await findDialogByHeading('Select start frame', hasAddToVideoButton);
+  const pickerDialogAfter = await findDialogByHeading(SELECT_START_FRAME_HEADINGS, hasAddToVideoButton);
   if (!pickerDialogAfter) return { status: 'failed' };
 
   // pickerDialogAfter can go stale mid-wait: vibes.ai can remount the
@@ -424,7 +470,7 @@ async function attemptUpload(
   // own settle window, capped short so we can also notice an "Upload
   // failed" toast in between) until it stabilizes ABOVE baseline, a failure
   // toast appears, or we run out of time.
-  const getLiveDialog = () => resolveDialogByHeadingSync('Select start frame', hasAddToVideoButton);
+  const getLiveDialog = () => resolveDialogByHeadingSync(SELECT_START_FRAME_HEADINGS, hasAddToVideoButton);
   const getLiveCount = () => getLiveDialog()?.querySelectorAll('img[data-nimg="fill"]').length ?? 0;
 
   const deadline = Date.now() + UPLOAD_WAIT_TIMEOUT_MS;
@@ -466,11 +512,11 @@ async function attachStartFrameAttempt(
 ): Promise<boolean> {
   if (!(await ensureStartEndFramePanel())) return false;
 
-  const addStartBtn = findButtonByText(document, 'Add start frame');
+  const addStartBtn = findButtonByText(document, ADD_START_FRAME_LABELS);
   if (!addStartBtn) return false;
   await simulateClick(addStartBtn);
 
-  const pickerDialog = await findDialogByHeading('Select start frame', hasAddToVideoButton);
+  const pickerDialog = await findDialogByHeading(SELECT_START_FRAME_HEADINGS, hasAddToVideoButton);
   if (!pickerDialog) return false;
 
   // The confirm "Upload" button inside the nested dialog enables the instant
@@ -517,7 +563,7 @@ async function attachStartFrameAttempt(
     // it already grew past baseline, the previous attempt did land, so treat
     // it as success instead of uploading again.
     const liveDialog =
-      resolveDialogByHeadingSync('Select start frame', hasAddToVideoButton) ?? pickerDialog;
+      resolveDialogByHeadingSync(SELECT_START_FRAME_HEADINGS, hasAddToVideoButton) ?? pickerDialog;
     const liveCount = liveDialog.querySelectorAll('img[data-nimg="fill"]').length;
     if (liveCount > baselineTotalImages) {
       uploadResult = { status: 'success', pickerDialogAfter: liveDialog, finalCount: liveCount };
@@ -533,7 +579,7 @@ async function attachStartFrameAttempt(
   const selected = await selectFirstTile(pickerDialogAfter);
   if (!selected) return false;
 
-  const addToVideoBtn = findButtonByText(pickerDialogAfter, 'Add to video');
+  const addToVideoBtn = findButtonByText(pickerDialogAfter, ADD_TO_VIDEO_LABELS);
   if (!addToVideoBtn || addToVideoBtn.disabled) return false;
   await simulateClick(addToVideoBtn);
 
@@ -554,7 +600,7 @@ async function selectFirstTile(pickerDialog: HTMLElement): Promise<boolean> {
   };
 
   const isAddToVideoEnabled = () => {
-    const btn = findButtonByText(pickerDialog, 'Add to video');
+    const btn = findButtonByText(pickerDialog, ADD_TO_VIDEO_LABELS);
     return !!btn && !btn.disabled;
   };
 
