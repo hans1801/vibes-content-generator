@@ -149,11 +149,17 @@ async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
 }
 
 type ImagePollResult =
-  { status: 'success'; url: string } | { status: 'timeout' } | { status: 'aborted' };
+  | { status: 'success'; url: string }
+  | { status: 'timeout' }
+  | { status: 'aborted' }
+  | { status: 'crashed' };
 
 async function waitForNewImage(beforeSnapshot: Set<string>): Promise<ImagePollResult> {
   for (let attempt = 0; attempt < MEDIA_POLL_MAX_ATTEMPTS; attempt++) {
     if (aborted) return { status: 'aborted' };
+
+    // Si el editor desapareció del DOM, la página crasheó o recargó (pantalla negra)
+    if (!getComposer()) return { status: 'crashed' };
 
     const currentImgs = Array.from(document.querySelectorAll('img'));
     const newImgs = currentImgs.filter((img) => {
@@ -220,6 +226,11 @@ async function handleImageMode(
     const result = await waitForNewImage(beforeSnapshot);
 
     if (result.status === 'aborted') return;
+    if (result.status === 'crashed') {
+      log({ sceneNumber, step: 'La página de Google Flow crasheó, saltando escena', kind: LogKinds.Error });
+      await browser.runtime.sendMessage({ action: Actions.SceneFailed, sceneNumber });
+      return;
+    }
 
     if (result.status === 'timeout') {
       if (attempt >= MAX_GENERATION_ATTEMPTS) {

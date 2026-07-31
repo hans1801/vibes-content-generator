@@ -262,6 +262,22 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
   const stopBatch = () =>
     browser.runtime.sendMessage({ action: Actions.StopBatch }).catch(() => {});
 
+  const skipCurrentScene = () => {
+    if (!batchStatus) return;
+    const currentSceneNum = batchStatus.sceneNumbers[batchStatus.currentIndex];
+    browser.runtime.sendMessage({ action: Actions.SceneFailed, sceneNumber: currentSceneNum }).catch(() => {});
+  };
+
+  const syncFolders = async () => {
+    if (!projectHandle) return;
+    setLoading(true);
+    try {
+      setCompletedScenes(await readCompleted(projectHandle, batchType));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (isBatchActive) {
     return (
       <div className="main">
@@ -291,9 +307,14 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           sceneStatuses={batchStatus!.sceneStatuses}
         />
 
-        <button className="abort-btn" onClick={stopBatch}>
-          ■ Detener batch
-        </button>
+        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+          <button className="abort-btn" onClick={stopBatch} style={{ flex: 1 }}>
+            ■ Detener batch
+          </button>
+          <button className="generate-btn" onClick={skipCurrentScene} style={{ flex: 1, margin: 0 }}>
+            ⏭ Saltar escena
+          </button>
+        </div>
         <p className="batch-note">El batch corre en background — puedes cerrar el popup.</p>
       </div>
     );
@@ -318,6 +339,9 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
             onClick={() => switchBatchType(BatchModes.Video)}
           >
             🎬 Videos
+          </button>
+          <button onClick={syncFolders} title="Sincronizar carpetas con el disco duro" disabled={loading}>
+            🔄 Sincronizar
           </button>
         </div>
       )}
