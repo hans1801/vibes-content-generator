@@ -8,6 +8,7 @@ export const Actions = {
   SceneFailed: 'scene_failed',
   BatchStatus: 'batch_status',
   Log: 'log',
+  NativeClick: 'native_click',
 } as const;
 
 export const BatchModes = {
@@ -26,7 +27,7 @@ export const SceneStatuses = {
 export type SceneStatus = (typeof SceneStatuses)[keyof typeof SceneStatuses];
 
 // Video scenes carry the already-generated reference image (base64) as the
-// start frame — video generation on vibes.ai always animates a prior image.
+// start frame — video generation always animates a prior image.
 export type SceneInput =
   | { kind: typeof BatchModes.Image; sceneNumber: number; imagePrompt: string }
   | {
@@ -37,8 +38,8 @@ export type SceneInput =
       videoPrompt: string;
     };
 
-// Both image and video generations on vibes.ai produce a 4-item batch, so a
-// single shape (urls[]) covers both — no need for a per-mode union here.
+// Both image and video generations produce a variable-length batch of urls
+// (Vibes returns 4, Google Flow returns 1+). urls[] covers both.
 export interface PendingWrite {
   mode: BatchMode;
   sceneNumber: number;
@@ -95,9 +96,6 @@ export interface WriteDoneMessage {
   sceneNumber: number;
 }
 
-// vibes.ai shows an inline "Couldn't generate" card instead of a thumbnail
-// when a generation errors out — sent so the batch can skip to the next
-// scene right away instead of waiting for the full timeout.
 export interface SceneFailedMessage {
   action: typeof Actions.SceneFailed;
   sceneNumber: number;
@@ -117,12 +115,8 @@ export const LogKinds = {
 
 export type LogKind = (typeof LogKinds)[keyof typeof LogKinds];
 
-// Step-level progress markers (current step, retry N/max, cooldown before
-// the next retry or scene) — sent from content.ts and background.ts so the
-// popup can show them, since neither of those contexts has a visible UI of
-// its own. Structured (not free text) so the popup can render a live
-// countdown for `cooldownMs`, color-code by `kind`, and replace the whole
-// status on each new message instead of piling up a scrollback.
+// Step-level progress markers forwarded from content scripts so the popup
+// can show a live status without requiring its own DevTools console.
 export interface LogMessage {
   action: typeof Actions.Log;
   sceneNumber?: number;
@@ -130,6 +124,12 @@ export interface LogMessage {
   kind: LogKind;
   attempt?: { current: number; max: number };
   cooldownMs?: number;
+}
+
+export interface NativeClickMessage {
+  action: typeof Actions.NativeClick;
+  x: number;
+  y: number;
 }
 
 export type ExtensionMessage =
@@ -141,9 +141,8 @@ export type ExtensionMessage =
   | WriteDoneMessage
   | SceneFailedMessage
   | BatchStatusMessage
-  | LogMessage;
-
-// ── Response contracts ────────────────────────────────────────────────────────
+  | LogMessage
+  | NativeClickMessage;
 
 export interface ContentResponse {
   success: boolean;

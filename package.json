@@ -1,8 +1,8 @@
 {
-  "name": "vibes-image-video-generator",
-  "description": "Chrome extension to automate image/video generation on vibes.ai",
+  "name": "omni-flow-ai",
+  "description": "Chrome extension to automate AI image/video generation across multiple platforms (Vibes.ai, Google Flow)",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",

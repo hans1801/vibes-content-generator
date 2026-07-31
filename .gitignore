@@ -29,3 +29,11 @@ web-ext.config.ts
 .claude
 *.mov
 test.html
+
+# Ignorar media generada
+*.mp4
+*.jpeg
+*.jpg
+*.png
+images/
+videos/

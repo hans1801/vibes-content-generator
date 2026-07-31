@@ -13,7 +13,9 @@ import {
 import BatchMode from './BatchMode/BatchMode';
 import './style.css';
 
-type Mode = 'single' | 'project';
+type AppMode = 'single' | 'project';
+
+// ── File system helpers ───────────────────────────────────────────────────────
 
 async function writeBlobToFile(dir: FileSystemDirectoryHandle, name: string, blob: Blob) {
   const fh = await dir.getFileHandle(name, { create: true });
@@ -22,9 +24,13 @@ async function writeBlobToFile(dir: FileSystemDirectoryHandle, name: string, blo
   await writable.close();
 }
 
+// ── Network helpers ───────────────────────────────────────────────────────────
+
 const FETCH_TIMEOUT_MS = 60000;
 const FETCH_RETRIES = 3;
 const RETRY_BACKOFF_MS = [1000, 2000, 4000];
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchWithTimeout(url: string): Promise<Response> {
   const controller = new AbortController();
@@ -36,11 +42,33 @@ async function fetchWithTimeout(url: string): Promise<Response> {
   }
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+async function fetchBlobWithRetry(url: string): Promise<Blob | null> {
+  // data: URLs don't need a network request — decode them directly.
+  if (url.startsWith('data:')) {
+    try {
+      const res = await fetch(url);
+      return await res.blob();
+    } catch {
+      return null;
+    }
+  }
 
-// vibes.ai stamps a small "Meta AI" watermark in the bottom-right corner of
-// generated images. Blur that corner region so it's illegible instead of
-// trying to crop it out (crop would shift framing/aspect ratio).
+  for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
+    try {
+      const resp = await fetchWithTimeout(url);
+      if (resp.ok) return await resp.blob();
+    } catch {
+      /* network error or timeout — retry below */
+    }
+    if (attempt < FETCH_RETRIES - 1) await sleep(RETRY_BACKOFF_MS[attempt]);
+  }
+  return null;
+}
+
+// ── Watermark removal ─────────────────────────────────────────────────────────
+
+// Vibes.ai stamps a "Meta AI" watermark in the bottom-right corner.
+// Blurring that region makes it illegible without altering the image framing.
 async function blurWatermarkCorner(blob: Blob): Promise<Blob> {
   try {
     const bitmap = await createImageBitmap(blob);
@@ -64,23 +92,16 @@ async function blurWatermarkCorner(blob: Blob): Promise<Blob> {
   }
 }
 
-async function fetchBlobWithRetry(url: string): Promise<Blob | null> {
-  for (let attempt = 0; attempt < FETCH_RETRIES; attempt++) {
-    try {
-      const resp = await fetchWithTimeout(url);
-      if (resp.ok) return await resp.blob();
-    } catch {
-      /* network error or timeout, retry below */
-    }
-    if (attempt < FETCH_RETRIES - 1) await sleep(RETRY_BACKOFF_MS[attempt]);
-  }
+// ── Platform tab detection ────────────────────────────────────────────────────
+
+async function getActivePlatformTab() {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  const url = tab?.url ?? '';
+  if (url.includes('vibes.ai') || url.includes('labs.google')) return tab;
   return null;
 }
 
-async function getVibesTab() {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  return tab?.url?.includes('vibes.ai') ? tab : null;
-}
+// ── Single-scene mode ─────────────────────────────────────────────────────────
 
 type SingleStatus = { type: 'idle' | 'loading' | 'success' | 'error'; message?: string };
 
@@ -93,14 +114,11 @@ function SingleMode() {
       setStatus({ type: 'error', message: 'Escribe un prompt primero.' });
       return;
     }
-    setStatus({ type: 'loading', message: 'Enviando a vibes.ai...' });
+    setStatus({ type: 'loading', message: 'Enviando...' });
     try {
-      const tab = await getVibesTab();
+      const tab = await getActivePlatformTab();
       if (!tab?.id) {
-        setStatus({
-          type: 'error',
-          message: 'Abre vibes.ai primero y usa la extensión desde esa pestaña.',
-        });
+        setStatus({ type: 'error', message: 'Abre vibes.ai o Google Flow primero.' });
         return;
       }
       const resp = await browser.tabs.sendMessage(tab.id, {
@@ -129,17 +147,15 @@ function SingleMode() {
         onChange={(e) => setPrompt(e.target.value)}
         rows={5}
       />
-      <button
-        className="generate-btn"
-        onClick={handleGenerate}
-        disabled={status.type === 'loading'}
-      >
+      <button className="generate-btn" onClick={handleGenerate} disabled={status.type === 'loading'}>
         {status.type === 'loading' ? 'Enviando...' : 'Generar imagen'}
       </button>
       {status.message && <p className={`status status-${status.type}`}>{status.message}</p>}
     </div>
   );
 }
+
+// ── Status panel (live log) ───────────────────────────────────────────────────
 
 interface LogStatus {
   sceneNumber?: number;
@@ -157,11 +173,8 @@ function formatCountdown(ms: number): string {
   return m > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${s}s`;
 }
 
-// A single "current status" card instead of a scrolling log — a fresh
-// message (new attempt, new step) just replaces the old one, so there's
-// nothing stale left on screen to confuse with the current state. The
-// cooldown counts down live client-side from the moment the message
-// arrived, ticking every 500ms.
+// A single "current status" card that replaces itself on each new message —
+// no scrollback, no stale state visible on screen.
 function StatusPanel({ status }: { status: LogStatus | null }) {
   const [now, setNow] = useState(Date.now());
 
@@ -173,9 +186,7 @@ function StatusPanel({ status }: { status: LogStatus | null }) {
 
   if (!status) return null;
 
-  const remainingMs = status.cooldownMs
-    ? Math.max(0, status.cooldownMs - (now - status.receivedAt))
-    : null;
+  const remainingMs = status.cooldownMs ? Math.max(0, status.cooldownMs - (now - status.receivedAt)) : null;
   const progress = status.cooldownMs && remainingMs !== null ? remainingMs / status.cooldownMs : 0;
 
   return (
@@ -203,10 +214,12 @@ function StatusPanel({ status }: { status: LogStatus | null }) {
   );
 }
 
+// ── Root component ────────────────────────────────────────────────────────────
+
 export default function App() {
-  const [mode, setMode] = useState<Mode>('single');
+  const [mode, setMode] = useState<AppMode>('single');
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
-  const [status, setStatus] = useState<LogStatus | null>(null);
+  const [logStatus, setLogStatus] = useState<LogStatus | null>(null);
   const grantedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   async function processPendingWrite(pw: PendingWrite) {
@@ -215,40 +228,32 @@ export default function App() {
     try {
       const rootDirName = pw.mode === BatchModes.Image ? ProjectDirs.Images : ProjectDirs.Videos;
       const rootDir = await handle.getDirectoryHandle(rootDirName, { create: true });
-      const sceneDir = await rootDir.getDirectoryHandle(sceneMediaSetFolder(pw.sceneNumber), {
-        create: true,
-      });
-      const nameFor =
-        pw.mode === BatchModes.Image ? sceneGeneratedImageName : sceneGeneratedVideoName;
+      const sceneDir = await rootDir.getDirectoryHandle(sceneMediaSetFolder(pw.sceneNumber), { create: true });
+      const nameFor = pw.mode === BatchModes.Image ? sceneGeneratedImageName : sceneGeneratedVideoName;
 
       const blobs = await Promise.all(
         pw.urls.map(async (url, i) => {
           let blob = await fetchBlobWithRetry(url);
           if (!blob) return null;
+          // Only apply the watermark blur to Vibes-generated images, not videos.
           if (pw.mode === BatchModes.Image) blob = await blurWatermarkCorner(blob);
           await writeBlobToFile(sceneDir, nameFor(i), blob);
           return blob;
-        })
+        }),
       );
 
-      // Pick one random blob from the batch as the scene's chosen output —
-      // for images it's also the start-frame input the video step reads
-      // later; for videos it's simply the final pick for that scene.
+      // Pick the first successfully downloaded blob as the scene reference.
+      // Using index 0 (instead of random) gives deterministic, reproducible results.
       const validBlobs = blobs.filter((b): b is Blob => b !== null);
       if (validBlobs.length > 0) {
-        const picked = validBlobs[Math.floor(Math.random() * validBlobs.length)];
         const refName =
-          pw.mode === BatchModes.Image
-            ? sceneRefImageName(pw.sceneNumber)
-            : sceneRefVideoName(pw.sceneNumber);
-        await writeBlobToFile(rootDir, refName, picked);
+          pw.mode === BatchModes.Image ? sceneRefImageName(pw.sceneNumber) : sceneRefVideoName(pw.sceneNumber);
+        await writeBlobToFile(rootDir, refName, validBlobs[0]);
       }
 
-      browser.runtime
-        .sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber })
-        .catch(() => {});
+      browser.runtime.sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber }).catch(() => {});
     } catch {
-      /* write failed, batch stays on pendingWrite */
+      /* Write failed — batch stays on pendingWrite and will retry on next popup open. */
     }
   }
 
@@ -265,20 +270,18 @@ export default function App() {
           if (perm === 'granted') grantedHandleRef.current = handle;
         }
       } catch {
-        /* no stored handle or permission denied */
+        /* No stored handle or permission denied. */
       }
 
       try {
-        const s = (await browser.runtime.sendMessage({
-          action: Actions.GetBatchStatus,
-        })) as BatchStatus | null;
+        const s = (await browser.runtime.sendMessage({ action: Actions.GetBatchStatus })) as BatchStatus | null;
         if (s) {
           setBatchStatus(s);
           if (s.active) setMode('project');
           if (s.pendingWrite) processPendingWrite(s.pendingWrite);
         }
       } catch {
-        /* background not available */
+        /* Background service worker not yet available. */
       }
     })();
 
@@ -289,7 +292,7 @@ export default function App() {
         return;
       }
       if (msg.action === Actions.Log) {
-        setStatus({
+        setLogStatus({
           sceneNumber: msg.sceneNumber,
           step: msg.step,
           kind: msg.kind,
@@ -299,18 +302,16 @@ export default function App() {
         });
       }
     };
-    browser.runtime.onMessage.addListener(
-      listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]
-    );
+    browser.runtime.onMessage.addListener(listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]);
     return () =>
       browser.runtime.onMessage.removeListener(
-        listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]
+        listener as Parameters<typeof browser.runtime.onMessage.addListener>[0],
       );
   }, []);
 
   return (
     <div id="app">
-      <h1>Vibes Image/Video Generator</h1>
+      <h1>OmniFlow AI</h1>
 
       <div className="mode-tabs">
         <button className={mode === 'single' ? 'active' : ''} onClick={() => setMode('single')}>
@@ -322,11 +323,9 @@ export default function App() {
       </div>
 
       {mode === 'single' && <SingleMode />}
-      {mode === 'project' && (
-        <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />
-      )}
+      {mode === 'project' && <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />}
 
-      <StatusPanel status={status} />
+      <StatusPanel status={logStatus} />
 
       <p className="footer">v{browser.runtime.getManifest().version}</p>
     </div>

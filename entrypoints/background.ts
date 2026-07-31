@@ -11,6 +11,8 @@ import type {
   LogKind,
 } from '../lib/types';
 
+// ── State ─────────────────────────────────────────────────────────────────────
+
 interface BatchState {
   active: boolean;
   mode: BatchMode;
@@ -25,9 +27,8 @@ interface BatchState {
 
 const STORAGE_KEY = 'batch';
 
-// MV3 service workers unload after ~30s idle and wipe module state. A scene
-// can take well over a minute to generate, so `batch` must survive that gap —
-// it's persisted to session storage and reloaded on every cold start.
+// MV3 service workers unload after ~30 s idle. Session storage keeps the
+// batch state alive across those cold-start gaps.
 let batch: BatchState | null = null;
 let popupTabId: number | null = null;
 
@@ -39,10 +40,8 @@ async function persistBatch() {
   await browser.storage.session.set({ [STORAGE_KEY]: batch });
 }
 
-// Step-level markers only (current step, retry N/max, cooldown before the
-// next retry or scene). Structured, not free text — see LogMessage. Forwarded
-// to the popup so it's visible without opening the service worker's own
-// DevTools console.
+// ── Logging ───────────────────────────────────────────────────────────────────
+
 function log(update: {
   sceneNumber?: number;
   step: string;
@@ -50,9 +49,10 @@ function log(update: {
   attempt?: { current: number; max: number };
   cooldownMs?: number;
 }) {
-  console.debug('[vibes-ext:bg]', update);
   browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
 }
+
+// ── Popup tab management ──────────────────────────────────────────────────────
 
 async function ensurePopupTab() {
   if (popupTabId !== null) {
@@ -63,10 +63,14 @@ async function ensurePopupTab() {
       popupTabId = null;
     }
   }
-  const popupUrl = browser.runtime.getURL('/popup.html');
-  const tab = await browser.tabs.create({ url: popupUrl, active: false });
+  const tab = await browser.tabs.create({
+    url: browser.runtime.getURL('/popup.html'),
+    active: false,
+  });
   popupTabId = tab.id ?? null;
 }
+
+// ── Status helpers ────────────────────────────────────────────────────────────
 
 function getStatus(): BatchStatus | null {
   if (!batch) return null;
@@ -91,6 +95,8 @@ async function resetSceneTimeout(delayInMinutes: number) {
   browser.alarms.create(Alarms.SceneTimeout, { delayInMinutes });
 }
 
+// ── Message construction ──────────────────────────────────────────────────────
+
 function buildFillPromptMessage(scene: SceneInput): FillPromptMessage {
   if (scene.kind === BatchModes.Image) {
     return {
@@ -111,6 +117,8 @@ function buildFillPromptMessage(scene: SceneInput): FillPromptMessage {
     sceneNumber: scene.sceneNumber,
   };
 }
+
+// ── Scene orchestration ───────────────────────────────────────────────────────
 
 async function processScene(index: number) {
   if (!batch || !batch.active) return;
@@ -133,40 +141,36 @@ async function processScene(index: number) {
     kind: LogKinds.Info,
   });
 
-  // The content script's own explicit success/failure messages are what
-  // normally end a scene — this is just a fallback in case it hangs
-  // silently. Covers everything up to detecting the finished media batch
-  // (mode switch, start frame upload for video, prompt fill, generation
-  // polling).
+  // Scene timeout acts as a silent-hang fallback — the content script's
+  // explicit success/failure messages normally end a scene before this fires.
   await resetSceneTimeout(5);
 
   try {
     const response = await browser.tabs.sendMessage(batch.tabId, buildFillPromptMessage(scene));
-
-    if (!response?.success) {
-      throw new Error(response?.error ?? 'fill_prompt failed');
-    }
+    if (!response?.success) throw new Error(response?.error ?? 'fill_prompt failed');
   } catch {
     await browser.alarms.clear(Alarms.SceneTimeout);
-    if (batch) {
-      batch.sceneStatuses[scene.sceneNumber] = SceneStatuses.Error;
-      await persistBatch();
-      broadcastStatus();
-      // Video scenes hit vibes.ai with two API calls (upload + generate)
-      // instead of one — chaining them back-to-back across scenes is what
-      // triggers the site's own rate limiting, so give video extra room.
-      const retryDelayMs = batch.mode === BatchModes.Video ? 12000 : 4500;
-      const nextIdx = index + 1;
-      log({
-        sceneNumber: scene.sceneNumber,
-        step: 'No se pudo enviar el prompt, saltando escena',
-        kind: LogKinds.Error,
-        cooldownMs: retryDelayMs,
-      });
-      setTimeout(() => {
-        if (batch?.active) processScene(nextIdx);
-      }, retryDelayMs);
-    }
+    if (!batch) return;
+
+    batch.sceneStatuses[scene.sceneNumber] = SceneStatuses.Error;
+    await persistBatch();
+    broadcastStatus();
+
+    // Video scenes require two API calls (upload + generate), which hits rate
+    // limits faster — give them more breathing room before the next scene.
+    const retryDelayMs = batch.mode === BatchModes.Video ? 12000 : 4500;
+    const nextIdx = index + 1;
+
+    log({
+      sceneNumber: scene.sceneNumber,
+      step: 'No se pudo enviar el prompt, saltando escena',
+      kind: LogKinds.Error,
+      cooldownMs: retryDelayMs,
+    });
+
+    setTimeout(() => {
+      if (batch?.active) processScene(nextIdx);
+    }, retryDelayMs);
   }
 }
 
@@ -176,6 +180,7 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
   batch.sceneStatuses[sceneNumber] = SceneStatuses.Done;
   await persistBatch();
   broadcastStatus();
+
   const nextIdx = batch.currentIndex + 1;
   const isLastScene = nextIdx >= batch.scenes.length;
 
@@ -188,7 +193,7 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
         ? `Batch completo, ${errorCount} escena(s) con error`
         : 'Batch completo, sin errores';
     log({ sceneNumber, step, kind: errorCount > 0 ? LogKinds.Error : LogKinds.Success });
-    await processScene(nextIdx); // marks batch inactive, no more scenes to run
+    await processScene(nextIdx);
     return;
   }
 
@@ -204,9 +209,6 @@ async function advanceAfterPendingWrite(sceneNumber: number) {
   }, nextDelayMs);
 }
 
-// Shared by the SceneTimeout alarm (silent stall) and the content script's
-// explicit "Couldn't generate" detection — either way, this scene is dead,
-// mark it and move on rather than sitting on it for the rest of the timeout.
 async function markSceneErrorAndAdvance(sceneNumber: number) {
   if (!batch) return;
   log({ sceneNumber, step: 'Escena marcada como error, avanzando', kind: LogKinds.Error });
@@ -221,8 +223,10 @@ async function markSceneErrorAndAdvance(sceneNumber: number) {
   }, 1000);
 }
 
+// ── Entry point ───────────────────────────────────────────────────────────────
+
 export default defineBackground(() => {
-  browser.runtime.onMessage.addListener(async (message: ExtensionMessage) => {
+  browser.runtime.onMessage.addListener(async (message: ExtensionMessage, sender) => {
     await batchLoaded;
 
     if (message.action === Actions.StartBatch) {
@@ -252,10 +256,6 @@ export default defineBackground(() => {
       if (batch) {
         batch.active = false;
         await persistBatch();
-        // `batch.active = false` only stops the NEXT scene from being
-        // queued — the content script's currently-running scene (clicks,
-        // polling, retry waits) has no way to know about that on its own.
-        // Message the tab directly so it can abort what it's doing too.
         browser.tabs.sendMessage(batch.tabId, { action: Actions.StopBatch }).catch(() => {});
       }
       await browser.alarms.clear(Alarms.SceneTimeout);
@@ -293,6 +293,34 @@ export default defineBackground(() => {
         await markSceneErrorAndAdvance(sceneNumber);
       }
       return;
+    }
+
+    if (message.action === Actions.NativeClick) {
+      const { x, y } = message;
+      const tabId = batch?.tabId ?? sender.tab?.id;
+      if (!tabId) return;
+
+      try {
+        await browser.debugger.attach({ tabId }, '1.3');
+        await browser.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          x,
+          y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await browser.debugger.sendCommand({ tabId }, 'Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          x,
+          y,
+          button: 'left',
+          clickCount: 1,
+        });
+        await browser.debugger.detach({ tabId });
+      } catch {
+        // Debugger attach can fail if the tab is already attached; silently ignore.
+      }
+      return { ok: true };
     }
 
     return;
