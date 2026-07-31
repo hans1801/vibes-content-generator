@@ -265,7 +265,9 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
   const skipCurrentScene = () => {
     if (!batchStatus) return;
     const currentSceneNum = batchStatus.sceneNumbers[batchStatus.currentIndex];
-    browser.runtime.sendMessage({ action: Actions.SceneFailed, sceneNumber: currentSceneNum }).catch(() => {});
+    browser.runtime
+      .sendMessage({ action: Actions.SceneFailed, sceneNumber: currentSceneNum })
+      .catch(() => {});
   };
 
   const syncFolders = async () => {
@@ -277,6 +279,8 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
       setLoading(false);
     }
   };
+
+  const resetCompleted = () => setCompletedScenes(new Set());
 
   if (isBatchActive) {
     return (
@@ -311,7 +315,11 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           <button className="abort-btn" onClick={stopBatch} style={{ flex: 1 }}>
             ■ Detener batch
           </button>
-          <button className="generate-btn" onClick={skipCurrentScene} style={{ flex: 1, margin: 0 }}>
+          <button
+            className="generate-btn"
+            onClick={skipCurrentScene}
+            style={{ flex: 1, margin: 0 }}
+          >
             ⏭ Saltar escena
           </button>
         </div>
@@ -340,9 +348,22 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           >
             🎬 Videos
           </button>
-          <button onClick={syncFolders} title="Sincronizar carpetas con el disco duro" disabled={loading}>
+          <button
+            onClick={syncFolders}
+            title="Sincronizar carpetas con el disco duro"
+            disabled={loading}
+          >
             🔄 Sincronizar
           </button>
+          {completedScenes.size > 0 && (
+            <button
+              onClick={resetCompleted}
+              title="Marcar todas las escenas como pendientes (no borra archivos del disco)"
+              style={{ color: '#f87171' }}
+            >
+              ↺ Regenerar todo
+            </button>
+          )}
         </div>
       )}
 
