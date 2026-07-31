@@ -231,6 +231,9 @@ async function waitForNewMedia(
 
     const currentMedia = Array.from(document.querySelectorAll('img, video'));
     const newMedia = currentMedia.filter((media) => {
+      if (isVideo && media.tagName !== 'VIDEO') return false;
+      if (!isVideo && media.tagName !== 'IMG') return false;
+
       const src =
         media.tagName === 'VIDEO'
           ? (media as HTMLVideoElement).currentSrc || (media as HTMLVideoElement).src

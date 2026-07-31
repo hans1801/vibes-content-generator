@@ -75,7 +75,17 @@ async function readCompletedScenes(
     for await (const [name, entry] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
       if ((entry as FileSystemHandle & { kind: string }).kind !== 'directory') continue;
       const m = name.match(SCENE_MEDIA_FOLDER_PATTERN);
-      if (m) completed.add(parseInt(m[1]));
+      if (!m) continue;
+      // Only count as completed if the folder has at least one file inside.
+      const sceneDir = entry as FileSystemDirectoryHandle;
+      let hasFile = false;
+      for await (const [, fileEntry] of sceneDir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+        if ((fileEntry as FileSystemHandle & { kind: string }).kind === 'file') {
+          hasFile = true;
+          break;
+        }
+      }
+      if (hasFile) completed.add(parseInt(m[1]));
     }
   } catch {
     /* dir doesn't exist yet */
