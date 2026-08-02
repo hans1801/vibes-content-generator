@@ -71,6 +71,10 @@ async function fillSlateComposer(
   for (let attempt = 0; attempt < 4; attempt++) {
     composer.focus();
 
+    document.execCommand('selectAll', false);
+    document.execCommand('delete', false);
+    await sleep(100);
+
     const rect = composer.getBoundingClientRect();
     const clientX = rect.left + rect.width / 2;
     const clientY = rect.top + rect.height / 2;
