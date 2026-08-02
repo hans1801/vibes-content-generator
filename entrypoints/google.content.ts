@@ -412,6 +412,7 @@ async function handleVideoMode(
   }
 
   // 4. Enviar
+  await sleep(3000);
   const submitted = await submitPrompt(composer);
   if (!submitted) {
     sendResponse({ success: false, error: 'No se pudo hacer clic en el botón de enviar.' });
