@@ -323,6 +323,21 @@ export default defineBackground(() => {
       return { ok: true };
     }
 
+    if (message.action === Actions.NativeType) {
+      const { text } = message;
+      const tabId = batch?.tabId ?? sender.tab?.id;
+      if (!tabId) return;
+
+      try {
+        await browser.debugger.attach({ tabId }, '1.3');
+        await browser.debugger.sendCommand({ tabId }, 'Input.insertText', { text });
+        await browser.debugger.detach({ tabId });
+      } catch {
+        // Silently ignore
+      }
+      return { ok: true };
+    }
+
     return;
   });
 

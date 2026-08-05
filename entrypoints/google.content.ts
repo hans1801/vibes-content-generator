@@ -51,6 +51,11 @@ async function nativeClick(element: HTMLElement): Promise<void> {
   await sleep(300);
 }
 
+async function nativeType(text: string): Promise<void> {
+  await browser.runtime.sendMessage({ action: Actions.NativeType, text });
+  await sleep(100);
+}
+
 // Utilidad para convertir base64 a File real (necesario para inyectarlo en DataTransfer)
 async function base64ToFile(base64: string, filename: string): Promise<File> {
   const res = await fetch(base64);
@@ -79,32 +84,75 @@ async function fillSlateComposer(
     const clientX = rect.left + rect.width / 2;
     const clientY = rect.top + rect.height / 2;
 
-    const dataTransfer = new DataTransfer();
-    dataTransfer.setData('text/plain', prompt);
+    // 1. Inyectar la imagen primero (si existe)
     if (file) {
-      dataTransfer.items.add(file);
+      const fileDt = new DataTransfer();
+      fileDt.items.add(file);
+      // Engañar a React Dropzone para que crea que hay archivos arrastrados
+      Object.defineProperty(fileDt, 'types', { value: ['Files'], configurable: true });
+
+      // Disparar en el padre (muchas veces el dropzone envuelve al editor entero)
+      const dropTarget = composer.parentElement || composer;
+      dropTarget.dispatchEvent(
+        new DragEvent('drop', {
+          dataTransfer: fileDt,
+          clientX,
+          clientY,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+
+      // Fallback con paste en el editor
+      composer.dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: fileDt, bubbles: true, cancelable: true })
+      );
+
+      // Esperar activamente a que la UI procese la imagen (hasta 20 segundos)
+      let imageAppeared = false;
+      const container = composer.parentElement?.parentElement;
+      for (let wait = 0; wait < 40; wait++) {
+        await sleep(500);
+        if (container?.querySelector('img')) {
+          imageAppeared = true;
+          break;
+        }
+      }
+
+      if (!imageAppeared) {
+        console.warn(
+          `[OmniFlow] ⚠️ Intento ${attempt + 1}: La imagen no apareció en el chat a tiempo. Reintentando...`
+        );
+        continue; // Volver a intentar todo el ciclo
+      }
     }
 
-    const targetNode = composer.querySelector('span[data-slate-string="true"]') ?? composer;
-    targetNode.dispatchEvent(
-      new DragEvent('drop', { dataTransfer, clientX, clientY, bubbles: true, cancelable: true })
-    );
-    targetNode.dispatchEvent(
-      new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true, cancelable: true })
-    );
+    // 2. Inyectar el texto usando el Debugger nativo de Chrome
+    // Como vimos, Slate bloquea los eventos artificiales (isTrusted: false).
+    // Usaremos el mismo truco que usamos para hacer clics (NativeClick), pero para escribir.
+    composer.focus();
+    await sleep(200);
+    await nativeType(prompt);
+    await sleep(400);
 
-    // execCommand as a secondary fallback in case the drop was rejected.
-    document.execCommand('insertText', false, prompt);
+    // Mantenemos esto por seguridad, pero nativeType ya hace el trabajo
     composer.dispatchEvent(new Event('input', { bubbles: true }));
 
     await sleep(400);
 
-    // Si hay archivo (video), el contenido de texto exacto puede variar porque Slate
-    // inserta un bloque de imagen, por lo que asumimos éxito si no lanza error.
-    if (file) return true;
-    if ((composer.textContent ?? '').trim().includes(expected)) return true;
+    if (file) {
+      console.log(`[OmniFlow] ✅ Intento yuu ${attempt + 1}: Texto inyectado e imagen confirmada.`);
+      return true;
+    } else {
+      if ((composer.textContent ?? '').trim().includes(expected)) {
+        return true;
+      }
+    }
   }
 
+  console.error(
+    '[OmniFlow] ❌ Fallo crítico: Se agotaron los intentos y la imagen/texto no se adjuntó. Abortando.'
+  );
   return false;
 }
 
@@ -409,11 +457,22 @@ async function handleVideoMode(
   const file = await base64ToFile(imageBase64, imageName);
 
   // 3. Inyectar prompt + archivo
+  console.log(`[OmniFlow] 🎬 Escena ${sceneNumber}: Iniciando inyección de imagen y texto.`);
   const filled = await fillSlateComposer(composer, prompt, file);
   if (!filled) {
-    sendResponse({ success: false, error: 'No se pudo inyectar la imagen/texto en Google Flow.' });
+    console.error(
+      `[OmniFlow] ❌ Escena ${sceneNumber}: Falló la inyección. La validación no encontró la imagen. Abortando envío para ahorrar créditos.`
+    );
+    sendResponse({
+      success: false,
+      error: 'Validación de seguridad fallida: La imagen no se adjuntó al chat.',
+    });
     return;
   }
+
+  console.log(
+    `[OmniFlow] ✅ Escena yuo ${sceneNumber}: Inyección y validación exitosas. Procediendo a enviar.`
+  );
 
   // 4. Enviar
   await sleep(3000);

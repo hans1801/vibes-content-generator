@@ -9,6 +9,7 @@ export const Actions = {
   BatchStatus: 'batch_status',
   Log: 'log',
   NativeClick: 'native_click',
+  NativeType: 'native_type',
 } as const;
 
 export const BatchModes = {
