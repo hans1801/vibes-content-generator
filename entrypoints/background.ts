@@ -32,12 +32,12 @@ const STORAGE_KEY = 'batch';
 let batch: BatchState | null = null;
 let popupTabId: number | null = null;
 
-const batchLoaded = browser.storage.session.get(STORAGE_KEY).then((stored) => {
+const batchLoaded = browser.storage.local.get(STORAGE_KEY).then((stored) => {
   batch = (stored[STORAGE_KEY] as BatchState | undefined) ?? null;
 });
 
 async function persistBatch() {
-  await browser.storage.session.set({ [STORAGE_KEY]: batch });
+  await browser.storage.local.set({ [STORAGE_KEY]: batch });
 }
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ async function processScene(index: number) {
   try {
     const response = await browser.tabs.sendMessage(batch.tabId, buildFillPromptMessage(scene));
     if (!response?.success) throw new Error(response?.error ?? 'fill_prompt failed');
-  } catch {
+  } catch (err: any) {
     await browser.alarms.clear(Alarms.SceneTimeout);
     if (!batch) return;
 
@@ -163,7 +163,7 @@ async function processScene(index: number) {
 
     log({
       sceneNumber: scene.sceneNumber,
-      step: 'No se pudo enviar el prompt, saltando escena',
+      step: err instanceof Error ? err.message : 'Error desconocido al inyectar',
       kind: LogKinds.Error,
       cooldownMs: retryDelayMs,
     });
