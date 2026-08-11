@@ -206,7 +206,7 @@ function getVisibleArrowButtons(): HTMLButtonElement[] {
 // Clicks the submit button, handling both the collapsed (1 button) and
 // expanded (2+ buttons) states of the Google Flow composer.
 async function submitPrompt(composer: HTMLElement): Promise<boolean> {
-  let arrowBtns = getVisibleArrowButtons();
+  const arrowBtns = getVisibleArrowButtons();
   if (arrowBtns.length === 0) return false;
 
   if (arrowBtns.length === 1) {

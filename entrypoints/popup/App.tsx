@@ -151,23 +151,44 @@ Output format:
           <div className="step-badge">2</div>
           <div className="step-content">
             <p className="step-text">
-              Adapta tu guion al formato estructurado <code>script.json</code>. Si no lo tienes, copia y usa este prompt para generarlo con IA:
+              Adapta tu guion al formato estructurado <code>script.json</code>. Si no lo tienes,
+              copia y usa este prompt para generarlo con IA:
             </p>
             <div className="prompt-wrapper">
               <div className="prompt-container">
                 <pre className="prompt-preview">{promptText}</pre>
               </div>
-              <button 
-                className={`icon-copy-btn ${copied ? 'copied' : ''}`} 
-                onClick={handleCopy} 
+              <button
+                className={`icon-copy-btn ${copied ? 'copied' : ''}`}
+                onClick={handleCopy}
                 title="Copiar prompt"
               >
                 {copied ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="#22c55e"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <polyline points="20 6 9 17 4 12"></polyline>
                   </svg>
                 ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                   </svg>
@@ -181,10 +202,12 @@ Output format:
           <div className="step-badge">3</div>
           <div className="step-content">
             <p className="step-text">
-              Guarda el archivo en una carpeta vacía. El archivo debe llamarse <strong>estrictamente</strong> <code>script.json</code>. Estructura inicial:
+              Guarda el archivo en una carpeta vacía. El archivo debe llamarse{' '}
+              <strong>estrictamente</strong> <code>script.json</code>. Estructura inicial:
             </p>
             <div className="folder-structure">
-              📁 Mi-Proyecto-AI/<br />
+              📁 Mi-Proyecto-AI/
+              <br />
               └── 📄 script.json
             </div>
           </div>
@@ -194,11 +217,15 @@ Output format:
           <div className="step-badge">4</div>
           <div className="step-content">
             <p className="step-text">
-              Ve a la pestaña <strong>Proyecto</strong>, selecciona esa carpeta, y haz clic en <strong>Generar Imágenes</strong>. El bot creará automáticamente la subcarpeta <code>images</code> para guardar los resultados:
+              Ve a la pestaña <strong>Proyecto</strong>, selecciona esa carpeta, y haz clic en{' '}
+              <strong>Generar Imágenes</strong>. El bot creará automáticamente la subcarpeta{' '}
+              <code>images</code> para guardar los resultados:
             </p>
             <div className="folder-structure">
-              📁 Mi-Proyecto-AI/<br />
-              ├── 📁 images/<br />
+              📁 Mi-Proyecto-AI/
+              <br />
+              ├── 📁 images/
+              <br />
               └── 📄 script.json
             </div>
           </div>
@@ -208,12 +235,16 @@ Output format:
           <div className="step-badge">5</div>
           <div className="step-content">
             <p className="step-text">
-              Terminadas las imágenes, haz clic en <strong>Generar Videos</strong>. Estos se guardarán en la subcarpeta <code>videos</code>, quedando la estructura final completa:
+              Terminadas las imágenes, haz clic en <strong>Generar Videos</strong>. Estos se
+              guardarán en la subcarpeta <code>videos</code>, quedando la estructura final completa:
             </p>
             <div className="folder-structure">
-              📁 Mi-Proyecto-AI/<br />
-              ├── 📁 images/<br />
-              ├── 📁 videos/<br />
+              📁 Mi-Proyecto-AI/
+              <br />
+              ├── 📁 images/
+              <br />
+              ├── 📁 videos/
+              <br />
               └── 📄 script.json
             </div>
           </div>
@@ -254,7 +285,9 @@ function StatusPanel({ status }: { status: LogStatus | null }) {
 
   if (!status) return null;
 
-  const remainingMs = status.cooldownMs ? Math.max(0, status.cooldownMs - (now - status.receivedAt)) : null;
+  const remainingMs = status.cooldownMs
+    ? Math.max(0, status.cooldownMs - (now - status.receivedAt))
+    : null;
   const progress = status.cooldownMs && remainingMs !== null ? remainingMs / status.cooldownMs : 0;
 
   return (
@@ -296,8 +329,11 @@ export default function App() {
     try {
       const rootDirName = pw.mode === BatchModes.Image ? ProjectDirs.Images : ProjectDirs.Videos;
       const rootDir = await handle.getDirectoryHandle(rootDirName, { create: true });
-      const sceneDir = await rootDir.getDirectoryHandle(sceneMediaSetFolder(pw.sceneNumber), { create: true });
-      const nameFor = pw.mode === BatchModes.Image ? sceneGeneratedImageName : sceneGeneratedVideoName;
+      const sceneDir = await rootDir.getDirectoryHandle(sceneMediaSetFolder(pw.sceneNumber), {
+        create: true,
+      });
+      const nameFor =
+        pw.mode === BatchModes.Image ? sceneGeneratedImageName : sceneGeneratedVideoName;
 
       const blobs = await Promise.all(
         pw.urls.map(async (url, i) => {
@@ -307,7 +343,7 @@ export default function App() {
           if (pw.mode === BatchModes.Image) blob = await blurWatermarkCorner(blob);
           await writeBlobToFile(sceneDir, nameFor(i), blob);
           return blob;
-        }),
+        })
       );
 
       // Pick the first successfully downloaded blob as the scene reference.
@@ -315,11 +351,15 @@ export default function App() {
       const validBlobs = blobs.filter((b): b is Blob => b !== null);
       if (validBlobs.length > 0) {
         const refName =
-          pw.mode === BatchModes.Image ? sceneRefImageName(pw.sceneNumber) : sceneRefVideoName(pw.sceneNumber);
+          pw.mode === BatchModes.Image
+            ? sceneRefImageName(pw.sceneNumber)
+            : sceneRefVideoName(pw.sceneNumber);
         await writeBlobToFile(rootDir, refName, validBlobs[0]);
       }
 
-      browser.runtime.sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber }).catch(() => {});
+      browser.runtime
+        .sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber })
+        .catch(() => {});
     } catch {
       /* Write failed — batch stays on pendingWrite and will retry on next popup open. */
     }
@@ -342,7 +382,9 @@ export default function App() {
       }
 
       try {
-        const s = (await browser.runtime.sendMessage({ action: Actions.GetBatchStatus })) as BatchStatus | null;
+        const s = (await browser.runtime.sendMessage({
+          action: Actions.GetBatchStatus,
+        })) as BatchStatus | null;
         if (s) {
           setBatchStatus(s);
           if (s.active) setMode('project');
@@ -370,10 +412,12 @@ export default function App() {
         });
       }
     };
-    browser.runtime.onMessage.addListener(listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]);
+    browser.runtime.onMessage.addListener(
+      listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]
+    );
     return () =>
       browser.runtime.onMessage.removeListener(
-        listener as Parameters<typeof browser.runtime.onMessage.addListener>[0],
+        listener as Parameters<typeof browser.runtime.onMessage.addListener>[0]
       );
   }, []);
 
@@ -391,7 +435,9 @@ export default function App() {
       </div>
 
       {mode === 'single' && <SingleMode />}
-      {mode === 'project' && <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />}
+      {mode === 'project' && (
+        <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />
+      )}
 
       <StatusPanel status={logStatus} />
 

@@ -80,7 +80,9 @@ async function readCompletedScenes(
         if (!m) continue;
         const sceneDir = entry as FileSystemDirectoryHandle;
         let hasFile = false;
-        for await (const [, fileEntry] of sceneDir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+        for await (const [, fileEntry] of sceneDir as unknown as AsyncIterable<
+          [string, FileSystemHandle]
+        >) {
           if ((fileEntry as FileSystemHandle & { kind: string }).kind === 'file') {
             hasFile = true;
             break;
@@ -285,18 +287,6 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
       .catch(() => {});
   };
 
-  const syncFolders = async () => {
-    if (!projectHandle) return;
-    setLoading(true);
-    try {
-      setCompletedScenes(await readCompleted(projectHandle, batchType));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetCompleted = () => setCompletedScenes(new Set());
-
   if (isBatchActive) {
     return (
       <div className="main">
@@ -363,22 +353,6 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           >
             🎬 Videos
           </button>
-          <button
-            onClick={syncFolders}
-            title="Sincronizar carpetas con el disco duro"
-            disabled={loading}
-          >
-            🔄 Sincronizar
-          </button>
-          {completedScenes.size > 0 && (
-            <button
-              onClick={resetCompleted}
-              title="Marcar todas las escenas como pendientes (no borra archivos del disco)"
-              style={{ color: '#f87171' }}
-            >
-              ↺ Regenerar todo
-            </button>
-          )}
         </div>
       )}
 
