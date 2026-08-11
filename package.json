@@ -1,6 +1,6 @@
 {
-  "name": "omni-flow-ai",
-  "description": "Chrome extension to automate AI image/video generation across multiple platforms (Vibes.ai, Google Flow)",
+  "name": "content-ai-generator",
+  "description": "Extensión de Chrome para automatizar la generación de imágenes y videos en Vibes AI y Google Flow.",
   "private": true,
   "version": "1.0.0",
   "type": "module",
