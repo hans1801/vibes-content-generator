@@ -141,6 +141,20 @@ Output format:
 
   return (
     <div className="main how-to-use">
+      <div className="welcome-section">
+        <p className="welcome-text">
+          Este bot te permite automatizar la generación de imágenes y videos tanto en{' '}
+          <a href="https://vibes.ai/" target="_blank" rel="noopener noreferrer">
+            Vibes AI
+          </a>{' '}
+          como en{' '}
+          <a href="https://labs.google/fx/es/tools/flow" target="_blank" rel="noopener noreferrer">
+            Google Flow
+          </a>
+          .
+        </p>
+      </div>
+
       <div className="steps-container">
         <div className="step-item">
           <div className="step-badge">1</div>
@@ -217,16 +231,65 @@ Output format:
           <div className="step-badge">4</div>
           <div className="step-content">
             <p className="step-text">
-              Ve a la pestaña <strong>Proyecto</strong>, selecciona esa carpeta, y haz clic en{' '}
-              <strong>Generar Imágenes</strong>. El bot creará automáticamente la subcarpeta{' '}
-              <code>images</code> para guardar los resultados:
+              <strong>Paso 4:</strong> Configura y genera las imágenes de tu proyecto.
             </p>
-            <div className="folder-structure">
-              📁 Mi-Proyecto-AI/
-              <br />
-              ├── 📁 images/
-              <br />
-              └── 📄 script.json
+
+            <details className="step-details" style={{ marginTop: '4px' }}>
+              <summary>Configuración de plataforma (Vibes AI / Google Flow)</summary>
+              <div className="details-content">
+                <div className="platform-option vibes">
+                  <h4>🟣 Vibes AI (Gratis)</h4>
+                  <ul>
+                    <li>📝 Nota: La plataforma puede ser inestable.</li>
+                    <li>
+                      🚀 No requiere configuración previa, solo haz clic en Generar en la extensión.
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="platform-option flow">
+                  <h4>🔵 Google Flow (Gratis - 0 puntos)</h4>
+                  <ul>
+                    <li>✅ Más estable (0 puntos).</li>
+                    <li>
+                      ⚙️ Activa el modo <strong>Agente</strong> y selecciona <strong>x2</strong> en
+                      la web antes de generar:
+                    </li>
+                  </ul>
+                  <img
+                    src="/flow_image.png"
+                    alt="Configuración Imagen Flow"
+                    className="guide-img"
+                  />
+                </div>
+              </div>
+            </details>
+
+            <div className="sub-step-info" style={{ marginTop: '8px' }}>
+              <p className="step-text">
+                En la pestaña <strong>Proyecto</strong>, selecciona tu carpeta, asegúrate de estar
+                en el modo <strong>Imágenes</strong> y haz clic en <strong>Generar imágenes</strong>
+                :
+              </p>
+              <img
+                src="/ext_image_project.png"
+                alt="Generar imágenes en extensión"
+                className="screenshot-img"
+              />
+            </div>
+
+            <div className="sub-step-info" style={{ marginTop: '8px' }}>
+              <p className="step-text">
+                El bot creará automáticamente la subcarpeta <code>images</code> y guardará las
+                imágenes:
+              </p>
+              <div className="folder-structure" style={{ marginTop: '4px' }}>
+                📁 Mi-Proyecto-AI/
+                <br />
+                ├── 📁 images/
+                <br />
+                └── 📄 script.json
+              </div>
             </div>
           </div>
         </div>
@@ -235,20 +298,73 @@ Output format:
           <div className="step-badge">5</div>
           <div className="step-content">
             <p className="step-text">
-              Terminadas las imágenes, haz clic en <strong>Generar Videos</strong>. Estos se
-              guardarán en la subcarpeta <code>videos</code>, quedando la estructura final completa:
+              <strong>Paso 5:</strong> Configura y genera los videos de tu proyecto.
             </p>
-            <div className="folder-structure">
-              📁 Mi-Proyecto-AI/
-              <br />
-              ├── 📁 images/
-              <br />
-              ├── 📁 videos/
-              <br />
-              └── 📄 script.json
+
+            <details className="step-details" style={{ marginTop: '4px' }}>
+              <summary>Configuración de plataforma (Vibes AI / Google Flow)</summary>
+              <div className="details-content">
+                <div className="platform-option vibes">
+                  <h4>🟣 Vibes AI (Gratis)</h4>
+                  <ul>
+                    <li>📝 Nota: La plataforma puede ser inestable.</li>
+                    <li>
+                      🚀 No requiere configuración previa, solo haz clic en Generar en la extensión.
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="platform-option flow">
+                  <h4>🔵 Google Flow (10 puntos por video)</h4>
+                  <ul>
+                    <li>💰 Cuesta 10 puntos por video.</li>
+                    <li>
+                      ⚙️ Cambia el agente a modo <strong>Vídeo</strong> y selecciona{' '}
+                      <strong>x1</strong> en la web antes de generar:
+                    </li>
+                  </ul>
+                  <img src="/flow_video.png" alt="Configuración Video Flow" className="guide-img" />
+                </div>
+              </div>
+            </details>
+
+            <div className="sub-step-info" style={{ marginTop: '8px' }}>
+              <p className="step-text">
+                En la extensión, selecciona el sub-modo <strong>Videos</strong> y haz clic en{' '}
+                <strong>Generar videos</strong>:
+              </p>
+              <img
+                src="/ext_video_project.png"
+                alt="Generar videos en extensión"
+                className="screenshot-img"
+              />
+            </div>
+
+            <div className="sub-step-info" style={{ marginTop: '8px' }}>
+              <p className="step-text">
+                El bot creará la subcarpeta <code>videos</code>, completando la estructura final:
+              </p>
+              <div className="folder-structure" style={{ marginTop: '4px' }}>
+                📁 Mi-Proyecto-AI/
+                <br />
+                ├── 📁 images/
+                <br />
+                ├── 📁 videos/
+                <br />
+                └── 📄 script.json
+              </div>
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="channel-section">
+        <p className="channel-text">
+          Encuentra más automatizaciones y desarrollo en mi canal:{' '}
+          <a href="https://www.youtube.com/@Hans-Acha" target="_blank" rel="noopener noreferrer">
+            YouTube @Hans-Acha
+          </a>
+        </p>
       </div>
     </div>
   );
@@ -359,7 +475,7 @@ export default function App() {
 
       browser.runtime
         .sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber })
-        .catch(() => { });
+        .catch(() => {});
     } catch {
       /* Write failed — batch stays on pendingWrite and will retry on next popup open. */
     }

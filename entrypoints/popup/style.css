@@ -10,14 +10,14 @@
 html, body {
   margin: 0;
   padding: 0;
-  width: 360px;
+  width: 420px;
   max-height: 560px;
   overflow: hidden;
 }
 
 #app {
   padding: 16px;
-  width: 360px;
+  width: 420px;
   max-height: 560px;
   display: flex;
   flex-direction: column;
@@ -403,6 +403,150 @@ h1 {
 
 .copy-btn {
   margin-top: 2px;
+}
+
+.welcome-section {
+  background: #1e1b4b30;
+  border: 1px solid #312e81;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 4px;
+}
+
+.welcome-text {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: 0 0 6px;
+  color: #cbd5e1;
+}
+
+.welcome-text a {
+  color: #a78bfa;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.welcome-text a:hover {
+  text-decoration: underline;
+}
+
+.channel-section {
+  background: #1e1b4b30;
+  border: 1px solid #312e81;
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 12px;
+}
+
+.channel-text {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.channel-text a {
+  color: #a78bfa;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.channel-text a:hover {
+  text-decoration: underline;
+}
+
+.step-details {
+  margin-top: 8px;
+  background: #111111;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.step-details summary {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: #a78bfa;
+  user-select: none;
+}
+
+.step-details summary:hover {
+  color: #c084fc;
+}
+
+.details-content {
+  padding: 8px 12px;
+  border-top: 1px solid #2a2a2a;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.details-content p {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin: 0;
+  color: #cbd5e1;
+}
+
+.guide-img {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  margin-top: 4px;
+}
+
+.platform-option {
+  border-bottom: 1px solid #2a2a2a;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.platform-option:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.platform-option h4 {
+  font-size: 11.5px;
+  margin: 0 0 6px;
+  color: #cbd5e1;
+}
+
+.platform-option ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.platform-option li {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+
+.platform-option li strong {
+  color: #e2e8f0;
+}
+
+.platform-option.ext p {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 0 0 6px;
+}
+
+.screenshot-img {
+  width: 75%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid #3b3363;
+  margin: 8px auto;
+  display: block;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 
