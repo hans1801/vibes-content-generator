@@ -359,7 +359,7 @@ export default function App() {
 
       browser.runtime
         .sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber })
-        .catch(() => {});
+        .catch(() => { });
     } catch {
       /* Write failed — batch stays on pendingWrite and will retry on next popup open. */
     }
@@ -423,7 +423,7 @@ export default function App() {
 
   return (
     <div id="app">
-      <h1>Content Generator</h1>
+      <h1>Content AI Generator</h1>
 
       <div className="mode-tabs">
         <button className={mode === 'single' ? 'active' : ''} onClick={() => setMode('single')}>

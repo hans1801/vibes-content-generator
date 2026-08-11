@@ -3,7 +3,7 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
-    name: 'Content Generator',
+    name: 'Content AI Generator',
     version: '1.0.0',
     permissions: ['activeTab', 'tabs', 'storage', 'alarms', 'debugger', 'unlimitedStorage'],
     host_permissions: ['https://*.vibes.ai/*', 'https://*.fbcdn.net/*', 'https://labs.google/*'],
