@@ -3,9 +3,11 @@
   color-scheme: light dark;
 }
 
-body {
+html, body {
   margin: 0;
-  min-width: 340px;
+  width: 360px;
+  max-width: 360px;
+  overflow-x: hidden;
 }
 
 #app {
@@ -45,18 +47,7 @@ h1 {
   gap: 10px;
 }
 
-.prompt-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-  border-radius: 8px;
-  border: 1px solid #3a3a3a;
-  background: #1a1a1a;
-  color: inherit;
-  padding: 8px;
-  font-family: inherit;
-  font-size: 13px;
-}
+
 
 .generate-btn,
 .folder-select-btn,
@@ -285,3 +276,121 @@ h1 {
   min-width: 28px;
   text-align: right;
 }
+
+
+/* Style overrides for the "How to Use" view */
+.how-to-use {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.steps-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.step-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.step-badge {
+  background: #6366f1;
+  color: white;
+  font-weight: bold;
+  font-size: 12px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.step-text {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  color: #e2e8f0;
+}
+
+.step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.prompt-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.prompt-container {
+  background: #111111;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 36px; /* Space for the floating button */
+}
+
+.icon-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #1e1e1e;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+
+.icon-copy-btn:hover {
+  background: #2d2d2d;
+  color: #f1f5f9;
+  border-color: #4b5563;
+}
+
+.icon-copy-btn.copied {
+  border-color: #22c55e;
+  background: #14532d20;
+}
+
+.folder-structure {
+  background: #111111;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #10b981;
+  line-height: 1.6;
+}
+
+.prompt-preview {
+  margin: 0;
+  font-family: monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #a78bfa;
+}
+
+.copy-btn {
+  margin-top: 2px;
+}
+
+

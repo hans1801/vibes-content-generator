@@ -92,65 +92,133 @@ async function blurWatermarkCorner(blob: Blob): Promise<Blob> {
   }
 }
 
-// ── Platform tab detection ────────────────────────────────────────────────────
-
-async function getActivePlatformTab() {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-  const url = tab?.url ?? '';
-  if (url.includes('vibes.ai') || url.includes('labs.google')) return tab;
-  return null;
-}
-
 // ── Single-scene mode ─────────────────────────────────────────────────────────
 
-type SingleStatus = { type: 'idle' | 'loading' | 'success' | 'error'; message?: string };
-
 function SingleMode() {
-  const [prompt, setPrompt] = useState('');
-  const [status, setStatus] = useState<SingleStatus>({ type: 'idle' });
+  const [copied, setCopied] = useState(false);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) {
-      setStatus({ type: 'error', message: 'Escribe un prompt primero.' });
-      return;
+  const promptText = `Convert the provided video script into the following JSON structure.
+
+For each scene, generate:
+
+* scene_number
+* image_prompt
+* video_prompt
+* narration
+
+Requirements:
+
+* image_prompt must contain exactly the content from the "Image Prompt" section converted into a single plain text string.
+* video_prompt must contain exactly the content from the "Video Prompt" section converted into a single plain text string.
+* narration must contain exactly the content from the "Narration" section.
+* Do not rewrite, improve, summarize, embellish, or reinterpret any scene.
+* Preserve all scene details, descriptions, actions, lighting, composition, atmosphere, style, and duration information.
+* Keep prompts in English only if the source prompts are in English; otherwise preserve the original language.
+* Keep narrations in their original language.
+* Return only valid JSON.
+* Do not use nested objects.
+* Do not omit any information from the original scene.
+* Create one JSON scene entry for every scene found in the script.
+
+Output format:
+
+{
+  "scenes": [
+    {
+      "scene_number": 1,
+      "image_prompt": "...",
+      "video_prompt": "...",
+      "narration": "..."
     }
-    setStatus({ type: 'loading', message: 'Enviando...' });
-    try {
-      const tab = await getActivePlatformTab();
-      if (!tab?.id) {
-        setStatus({ type: 'error', message: 'Abre vibes.ai o Google Flow primero.' });
-        return;
-      }
-      const resp = await browser.tabs.sendMessage(tab.id, {
-        action: Actions.FillPrompt,
-        prompt: prompt.trim(),
-        mediaType: BatchModes.Image,
-        imageBase64: null,
-        imageName: null,
-      });
-      if (!resp?.success) {
-        setStatus({ type: 'error', message: resp?.error ?? 'Error desconocido.' });
-        return;
-      }
-      setStatus({ type: 'success', message: resp.message });
-    } catch (err) {
-      setStatus({ type: 'error', message: err instanceof Error ? err.message : String(err) });
-    }
+  ]
+}`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(promptText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div className="main">
-      <textarea
-        className="prompt-textarea"
-        placeholder="Describe la imagen que quieres generar..."
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-        rows={5}
-      />
-      <button className="generate-btn" onClick={handleGenerate} disabled={status.type === 'loading'}>
-        {status.type === 'loading' ? 'Enviando...' : 'Generar imagen'}
-      </button>
-      {status.message && <p className={`status status-${status.type}`}>{status.message}</p>}
+    <div className="main how-to-use">
+      <div className="steps-container">
+        <div className="step-item">
+          <div className="step-badge">1</div>
+          <p className="step-text">Primero debes tener todas las escenas de tu guion preparadas.</p>
+        </div>
+
+        <div className="step-item">
+          <div className="step-badge">2</div>
+          <div className="step-content">
+            <p className="step-text">
+              Adapta tu guion al formato estructurado <code>script.json</code>. Si no lo tienes, copia y usa este prompt para generarlo con IA:
+            </p>
+            <div className="prompt-wrapper">
+              <div className="prompt-container">
+                <pre className="prompt-preview">{promptText}</pre>
+              </div>
+              <button 
+                className={`icon-copy-btn ${copied ? 'copied' : ''}`} 
+                onClick={handleCopy} 
+                title="Copiar prompt"
+              >
+                {copied ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="step-item">
+          <div className="step-badge">3</div>
+          <div className="step-content">
+            <p className="step-text">
+              Guarda el archivo en una carpeta vacía. El archivo debe llamarse <strong>estrictamente</strong> <code>script.json</code>. Estructura inicial:
+            </p>
+            <div className="folder-structure">
+              📁 Mi-Proyecto-AI/<br />
+              └── 📄 script.json
+            </div>
+          </div>
+        </div>
+
+        <div className="step-item">
+          <div className="step-badge">4</div>
+          <div className="step-content">
+            <p className="step-text">
+              Ve a la pestaña <strong>Proyecto</strong>, selecciona esa carpeta, y haz clic en <strong>Generar Imágenes</strong>. El bot creará automáticamente la subcarpeta <code>images</code> para guardar los resultados:
+            </p>
+            <div className="folder-structure">
+              📁 Mi-Proyecto-AI/<br />
+              ├── 📁 images/<br />
+              └── 📄 script.json
+            </div>
+          </div>
+        </div>
+
+        <div className="step-item">
+          <div className="step-badge">5</div>
+          <div className="step-content">
+            <p className="step-text">
+              Terminadas las imágenes, haz clic en <strong>Generar Videos</strong>. Estos se guardarán en la subcarpeta <code>videos</code>, quedando la estructura final completa:
+            </p>
+            <div className="folder-structure">
+              📁 Mi-Proyecto-AI/<br />
+              ├── 📁 images/<br />
+              ├── 📁 videos/<br />
+              └── 📄 script.json
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -315,7 +383,7 @@ export default function App() {
 
       <div className="mode-tabs">
         <button className={mode === 'single' ? 'active' : ''} onClick={() => setMode('single')}>
-          Escena única
+          ¿Cómo usar?
         </button>
         <button className={mode === 'project' ? 'active' : ''} onClick={() => setMode('project')}>
           Proyecto
