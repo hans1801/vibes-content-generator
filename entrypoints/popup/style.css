@@ -1,3 +1,7 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   color-scheme: light dark;
@@ -5,13 +9,17 @@
 
 html, body {
   margin: 0;
+  padding: 0;
   width: 360px;
+  min-width: 360px;
   max-width: 360px;
   overflow-x: hidden;
 }
 
 #app {
   padding: 16px;
+  width: 360px;
+  max-width: 360px;
 }
 
 h1 {
