@@ -7,12 +7,20 @@
   color-scheme: light dark;
 }
 
-html, body {
+html {
   margin: 0;
   padding: 0;
   width: 360px;
   min-width: 360px;
   max-width: 360px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
   overflow-x: hidden;
 }
 
