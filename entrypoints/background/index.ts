@@ -73,12 +73,12 @@ export default defineBackground(() => {
     }
 
     if (message.action === Actions.SceneFailed) {
-      const { sceneNumber } = message;
+      const { sceneNumber, reason, retryAfterMs } = message;
       if (
         batchStore.batch?.active &&
         batchStore.batch.sceneStatuses[sceneNumber] === SceneStatuses.Processing
       ) {
-        await markSceneErrorAndAdvance(sceneNumber);
+        await markSceneErrorAndAdvance(sceneNumber, reason, retryAfterMs);
       }
       return;
     }

@@ -1,6 +1,6 @@
 import { Actions, SceneStatuses, BatchModes, LogKinds } from '../../lib/types';
 import { Alarms } from '../../lib/constants';
-import type { SceneInput, FillPromptMessage, LogUpdate } from '../../lib/types';
+import type { SceneInput, SendPromptMessage, LogUpdate } from '../../lib/types';
 import { batchStore } from './batchStore';
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -11,10 +11,10 @@ function log(update: LogUpdate) {
 
 // ── Message construction ──────────────────────────────────────────────────────
 
-function buildFillPromptMessage(scene: SceneInput): FillPromptMessage {
+function buildSendPromptMessage(scene: SceneInput): SendPromptMessage {
   if (scene.kind === BatchModes.Image) {
     return {
-      action: Actions.FillPrompt,
+      action: Actions.SendPrompt,
       prompt: scene.imagePrompt,
       mediaType: BatchModes.Image,
       imageBase64: null,
@@ -23,7 +23,7 @@ function buildFillPromptMessage(scene: SceneInput): FillPromptMessage {
     };
   }
   return {
-    action: Actions.FillPrompt,
+    action: Actions.SendPrompt,
     prompt: scene.videoPrompt,
     mediaType: BatchModes.Video,
     imageBase64: scene.imageBase64,
@@ -59,33 +59,28 @@ export async function runBatchSceneFrom(index: number) {
     kind: LogKinds.Info,
   });
 
-  // Scene timeout acts as a silent-hang fallback — the content script's
-  // explicit success/failure messages normally end a scene before this fires.
+  // Silent-hang fallback — the content script's own messages normally end
+  // the scene before this fires.
   await resetSceneTimeout(5);
 
+  // A rejection here means the message itself couldn't be delivered (tab
+  // closed) — real outcomes arrive later via their own messages.
   try {
-    const response = await browser.tabs.sendMessage(batch.tabId, buildFillPromptMessage(scene));
-    if (!response?.success) throw new Error(response?.error ?? 'fill_prompt failed');
+    await browser.tabs.sendMessage(batch.tabId, buildSendPromptMessage(scene));
   } catch (err) {
     await browser.alarms.clear(Alarms.SceneTimeout);
     if (!batchStore.batch) return;
 
-    await batchStore.setSceneStatus(scene.sceneNumber, SceneStatuses.Error);
-    batchStore.broadcastStatus();
-
-    // Video scenes require two API calls (upload + generate), which hits rate
-    // limits faster — give them more breathing room before the next scene.
-    // TODO: this only accounts for mode, not site — google.content.ts and
-    // vibes.content.ts already have their own per-site rate-limit delays
-    // (GENERATION_RETRY_DELAY_MS, UPLOAD_RETRY_DELAY_MS). Consider adding an
-    // optional `retryAfterMs` to ContentResponse so each site can suggest its
-    // own cooldown per failure, with this as just the fallback default.
+    // Video needs more breathing room before the next scene (2 API calls).
     const retryDelayMs = batch.mode === BatchModes.Video ? 12000 : 4500;
     const nextIdx = index + 1;
 
+    await batchStore.setSceneStatus(scene.sceneNumber, SceneStatuses.Error);
+    batchStore.broadcastStatus();
+
     log({
       sceneNumber: scene.sceneNumber,
-      step: err instanceof Error ? err.message : 'Error desconocido al inyectar',
+      step: err instanceof Error ? err.message : 'No se pudo contactar la pestaña.',
       kind: LogKinds.Error,
       cooldownMs: retryDelayMs,
     });
@@ -131,10 +126,20 @@ export async function advanceAfterPendingWrite(sceneNumber: number) {
   }, nextDelayMs);
 }
 
-export async function markSceneErrorAndAdvance(sceneNumber: number) {
+// `reason`/`retryAfterMs` come from SceneFailed; the SceneTimeout alarm
+// calls this with neither, falling back to the generic text/delay.
+export async function markSceneErrorAndAdvance(
+  sceneNumber: number,
+  reason?: string,
+  retryAfterMs?: number
+) {
   const { batch } = batchStore;
   if (!batch) return;
-  log({ sceneNumber, step: 'Escena marcada como error, avanzando', kind: LogKinds.Error });
+  log({
+    sceneNumber,
+    step: reason ?? 'Escena marcada como error, avanzando',
+    kind: LogKinds.Error,
+  });
   await batchStore.setSceneStatus(sceneNumber, SceneStatuses.Error);
   await batchStore.clearPendingWrite();
   batchStore.broadcastStatus();
@@ -142,5 +147,5 @@ export async function markSceneErrorAndAdvance(sceneNumber: number) {
   const nextIdx = batch.currentIndex + 1;
   setTimeout(() => {
     if (batchStore.batch?.active) runBatchSceneFrom(nextIdx);
-  }, 1000);
+  }, retryAfterMs ?? 1000);
 }
