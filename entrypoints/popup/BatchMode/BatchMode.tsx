@@ -1,167 +1,22 @@
 import { useState } from 'react';
 import { Actions, SceneStatuses, BatchModes } from '../../../lib/types';
-import type { BatchMode, BatchStatus, SceneInput, SceneStatus } from '../../../lib/types';
-import { storeProjectHandle, fileToDataUrl } from '../utils';
+import type { BatchMode, BatchStatus, SceneInput } from '../../../lib/types';
+import { storeProjectHandle } from '../utils';
+import { ProjectFiles, SUPPORTED_SITES } from '../../../lib/constants';
+import { ActiveBatchView } from './components/ActiveBatchView';
+import { ProjectSetupView } from './components/ProjectSetupView';
+import { getPreCompleted } from './scenePrompts';
 import {
-  ProjectDirs,
-  ProjectFiles,
-  SCENE_REF_FILE_PATTERN,
-  VIDEO_PROMPT_PREFIX,
-  pad4,
-  sceneRefImageName,
-} from '../../../lib/constants';
+  readCompletedScenes,
+  validateSceneRefImages,
+  buildImageScenes,
+  buildVideoScenes,
+} from './projectFiles';
+import type { SceneData } from './BatchMode.types';
 
 declare function showDirectoryPicker(options?: {
   mode?: 'read' | 'readwrite';
 }): Promise<FileSystemDirectoryHandle>;
-
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface ImagePrompt {
-  subjects: { description: string; action: string }[];
-  environment: string;
-  lighting: string;
-  composition: string;
-  style: string;
-}
-
-interface VideoPrompt {
-  motion: string;
-  camera_movement: string;
-}
-
-// script.json can give either the structured object (built field by field)
-// or a plain string (used as-is) for both prompt kinds — just those two
-// shapes, nothing else.
-interface SceneData {
-  scene_number: number;
-  image_prompt: ImagePrompt | string;
-  video_prompt?: VideoPrompt | string;
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-const clean = (s?: string) => s?.trim() ?? '';
-
-function buildImagePrompt(scene: SceneData): string {
-  const ip = scene.image_prompt;
-  if (typeof ip === 'string') return clean(ip);
-  const subjects = ip.subjects.map((s) => `${clean(s.description)} ${clean(s.action)}`).join(' ');
-  return [subjects, ip.environment, ip.lighting, ip.composition, ip.style]
-    .map(clean)
-    .filter(Boolean)
-    .join(' ');
-}
-
-function buildVideoPrompt(scene: SceneData): string {
-  const vp = scene.video_prompt;
-  if (!vp) return VIDEO_PROMPT_PREFIX;
-  if (typeof vp === 'string') return `${VIDEO_PROMPT_PREFIX} ${clean(vp)}`.trim();
-  const strip = (s?: string) => clean(s).replace(/\.$/, '');
-  return `${VIDEO_PROMPT_PREFIX} ${strip(vp.motion)} ${strip(vp.camera_movement)}`.trim();
-}
-
-function getPreCompleted(allScenes: SceneData[], pendingScenes: SceneData[]): number[] {
-  const pendingNums = new Set(pendingScenes.map((s) => s.scene_number));
-  return allScenes.map((s) => s.scene_number).filter((n) => !pendingNums.has(n));
-}
-
-// Returns the scene numbers that already have a generated flat ref file
-// (scene_NNNN.jpeg|mp4) in the project's images/videos subdir for the given
-// batch type — i.e. already done.
-async function readCompletedScenes(
-  handle: FileSystemDirectoryHandle,
-  type: BatchMode
-): Promise<Set<number>> {
-  const completed = new Set<number>();
-  try {
-    const dirName = type === BatchModes.Image ? ProjectDirs.Images : ProjectDirs.Videos;
-    const dir = await handle.getDirectoryHandle(dirName);
-    for await (const [name, entry] of dir.entries()) {
-      if (entry.kind !== 'file') continue;
-      const m = name.match(SCENE_REF_FILE_PATTERN);
-      if (m) completed.add(parseInt(m[1]));
-    }
-  } catch {
-    /* dir doesn't exist yet */
-  }
-  return completed;
-}
-
-async function validateSceneRefImages(
-  projectHandle: FileSystemDirectoryHandle,
-  scenes: SceneData[]
-): Promise<number[]> {
-  const missing: number[] = [];
-  try {
-    const imagesDir = await projectHandle.getDirectoryHandle(ProjectDirs.Images);
-    await Promise.all(
-      scenes.map(async (scene) => {
-        try {
-          await imagesDir.getFileHandle(sceneRefImageName(scene.scene_number));
-        } catch {
-          missing.push(scene.scene_number);
-        }
-      })
-    );
-  } catch {
-    return scenes.map((s) => s.scene_number);
-  }
-  return missing;
-}
-
-async function buildVideoScenes(
-  projectHandle: FileSystemDirectoryHandle,
-  pendingScenes: SceneData[]
-): Promise<SceneInput[]> {
-  const imagesDir = await projectHandle.getDirectoryHandle(ProjectDirs.Images);
-  return Promise.all(
-    pendingScenes.map(async (scene) => {
-      const file = await (
-        await imagesDir.getFileHandle(sceneRefImageName(scene.scene_number))
-      ).getFile();
-      return {
-        kind: BatchModes.Video,
-        sceneNumber: scene.scene_number,
-        imageBase64: await fileToDataUrl(file),
-        imageName: sceneRefImageName(scene.scene_number),
-        videoPrompt: buildVideoPrompt(scene),
-      } satisfies SceneInput;
-    })
-  );
-}
-
-// ── Sub-components ───────────────────────────────────────────────────────────
-
-const SCENE_ICONS: Record<string, string> = {
-  [SceneStatuses.Processing]: '⏳',
-  [SceneStatuses.Done]: '✓',
-  [SceneStatuses.Error]: '✗',
-};
-
-function StatusSceneGrid({
-  sceneNumbers,
-  sceneStatuses,
-}: {
-  sceneNumbers: number[];
-  sceneStatuses: Record<number, SceneStatus>;
-}) {
-  return (
-    <div className="scene-grid">
-      {sceneNumbers.map((n) => (
-        <div
-          key={n}
-          className={`scene-cell scene-cell--${sceneStatuses[n] ?? 'pending'}`}
-          title={`Escena ${pad4(n)}`}
-        >
-          {SCENE_ICONS[sceneStatuses[n]] ?? '·'}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Main component ───────────────────────────────────────────────────────────
 
 interface Props {
   batchStatus: BatchStatus | null;
@@ -219,7 +74,9 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
     if (!projectHandle || pendingScenes.length === 0) return;
     const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) {
-      setStatusMsg('Abre vibes.ai en la pestaña activa primero.');
+      setStatusMsg(
+        `Abre ${SUPPORTED_SITES.map((s) => s.name).join(' o ')} en la pestaña activa primero.`
+      );
       return;
     }
 
@@ -239,14 +96,11 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
         ? 'Iniciando batch de imágenes...'
         : 'Cargando imagen de referencia...'
     );
+
     try {
       const scenes: SceneInput[] =
         batchType === BatchModes.Image
-          ? pendingScenes.map((s) => ({
-            kind: BatchModes.Image,
-            sceneNumber: s.scene_number,
-            imagePrompt: buildImagePrompt(s),
-          }))
+          ? buildImageScenes(pendingScenes)
           : await buildVideoScenes(projectHandle, pendingScenes);
 
       await browser.runtime.sendMessage({
@@ -265,130 +119,32 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
     }
   };
 
-  const stopBatch = () =>
-    browser.runtime.sendMessage({ action: Actions.StopBatch }).catch(() => { });
+  // Fire-and-forget: background owns the running batch, popup just notifies
+  // and doesn't care if the message fails to land (e.g. popup closing).
+  const notifyBackground = (message: object) =>
+    browser.runtime.sendMessage(message).catch(() => {});
 
-  const skipCurrentScene = () => {
-    if (!batchStatus) return;
-    const currentSceneNum = batchStatus.sceneNumbers[batchStatus.currentIndex];
-    browser.runtime
-      .sendMessage({ action: Actions.SceneFailed, sceneNumber: currentSceneNum })
-      .catch(() => { });
-  };
+  const stopBatch = () => notifyBackground({ action: Actions.StopBatch });
 
   if (isBatchActive) {
-    return (
-      <div className="main">
-        <div className="project-header">
-          <span className="project-title">{batchStatus!.projectName}</span>
-          <span className="project-count">
-            {batchStatus!.mode === BatchModes.Image ? '🖼 Imágenes · ' : '🎬 Videos · '}
-            Escena {pad4(batchStatus!.currentIndex + 1)} /{' '}
-            {batchStatus!.totalScenes} · {doneCount} listas
-          </span>
-        </div>
-
-        <div className="progress-bar">
-          <div className="progress-bar__track">
-            <div
-              className="progress-bar__fill"
-              style={{ width: `${(doneCount / batchStatus!.totalScenes) * 100}%` }}
-            />
-          </div>
-          <span>
-            {doneCount}/{batchStatus!.totalScenes}
-          </span>
-        </div>
-
-        <StatusSceneGrid
-          sceneNumbers={batchStatus!.sceneNumbers}
-          sceneStatuses={batchStatus!.sceneStatuses}
-        />
-
-        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-          <button className="abort-btn" onClick={stopBatch} style={{ flex: 1 }}>
-            ■ Detener batch
-          </button>
-          <button
-            className="generate-btn"
-            onClick={skipCurrentScene}
-            style={{ flex: 1, margin: 0 }}
-          >
-            ⏭ Saltar escena
-          </button>
-        </div>
-        <p className="batch-note">El batch corre en background — puedes cerrar el popup.</p>
-      </div>
-    );
+    return <ActiveBatchView batchStatus={batchStatus} doneCount={doneCount} onStop={stopBatch} />;
   }
 
   return (
-    <div className="main">
-      <button className="folder-select-btn" onClick={selectFolder} disabled={loading}>
-        {projectHandle ? `📁 ${projectName}` : '📂 Seleccionar carpeta de proyecto'}
-      </button>
-
-      {projectHandle && (
-        <div className="mode-tabs">
-          <button
-            className={batchType === BatchModes.Image ? 'active' : ''}
-            onClick={() => switchBatchType(BatchModes.Image)}
-          >
-            🖼 Imágenes
-          </button>
-          <button
-            className={batchType === BatchModes.Video ? 'active' : ''}
-            onClick={() => switchBatchType(BatchModes.Video)}
-          >
-            🎬 Videos
-          </button>
-        </div>
-      )}
-
-      {batchScenes.length > 0 && (
-        <>
-          <p className="scenes-count">
-            {pendingScenes.length} pendientes · {completedScenes.size} ya generadas
-          </p>
-          <div className="scene-grid">
-            {batchScenes.map((s) => (
-              <div
-                key={s.scene_number}
-                className={`scene-cell ${completedScenes.has(s.scene_number) ? 'scene-cell--done' : ''}`}
-                title={`Escena ${pad4(s.scene_number)}`}
-              >
-                {completedScenes.has(s.scene_number) ? '✓' : '·'}
-              </div>
-            ))}
-          </div>
-          {pendingScenes.length > 0 ? (
-            <button className="generate-btn" onClick={startBatch} disabled={loading}>
-              {loading
-                ? batchType === BatchModes.Image
-                  ? 'Iniciando...'
-                  : 'Cargando imágenes...'
-                : `Generar ${batchType === BatchModes.Image ? 'imágenes' : 'videos'} (${pendingScenes.length} pendientes)`}
-            </button>
-          ) : (
-            <p className="status status-success">Todas las escenas ya están generadas ✓</p>
-          )}
-        </>
-      )}
-
-      {batchStatus && !batchStatus.active && batchStatus.totalScenes > 0 && (
-        <div className="last-batch">
-          <p className="last-batch__label">
-            {batchStatus.mode === BatchModes.Image ? '🖼' : '🎬'} Último: {batchStatus.projectName} ·{' '}
-            {doneCount}/{batchStatus.totalScenes} completados
-          </p>
-          <StatusSceneGrid
-            sceneNumbers={batchStatus.sceneNumbers}
-            sceneStatuses={batchStatus.sceneStatuses}
-          />
-        </div>
-      )}
-
-      {statusMsg && <p className="status status-error">{statusMsg}</p>}
-    </div>
+    <ProjectSetupView
+      projectHandle={projectHandle}
+      projectName={projectName}
+      batchType={batchType}
+      batchScenes={batchScenes}
+      completedScenes={completedScenes}
+      pendingScenes={pendingScenes}
+      loading={loading}
+      statusMsg={statusMsg}
+      batchStatus={batchStatus}
+      doneCount={doneCount}
+      onSelectFolder={selectFolder}
+      onSwitchBatchType={switchBatchType}
+      onStartBatch={startBatch}
+    />
   );
 }

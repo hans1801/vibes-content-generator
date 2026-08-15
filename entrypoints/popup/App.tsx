@@ -9,8 +9,9 @@ import {
   sceneGeneratedVideoName,
   sceneRefImageName,
   sceneRefVideoName,
+  SUPPORTED_SITES,
 } from '../../lib/constants';
-import BatchMode from './BatchMode/BatchMode';
+import { BatchMode } from './BatchMode';
 import './style.css';
 
 type AppMode = 'single' | 'project';
@@ -144,12 +145,12 @@ Output format:
       <div className="welcome-section">
         <p className="welcome-text">
           Este bot te permite automatizar la generación de imágenes y videos tanto en{' '}
-          <a href="https://vibes.ai/" target="_blank" rel="noopener noreferrer">
-            Vibes AI
+          <a href={SUPPORTED_SITES[0].url} target="_blank" rel="noopener noreferrer">
+            {SUPPORTED_SITES[0].name}
           </a>{' '}
           como en{' '}
-          <a href="https://labs.google/fx/es/tools/flow" target="_blank" rel="noopener noreferrer">
-            Google Flow
+          <a href={SUPPORTED_SITES[1].url} target="_blank" rel="noopener noreferrer">
+            {SUPPORTED_SITES[1].name}
           </a>
           .
         </p>

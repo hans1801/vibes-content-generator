@@ -18,6 +18,14 @@ export const SCENE_REF_FILE_PATTERN = /^scene_(\d+)\.(jpeg|mp4)$/;
 
 export const VIDEO_PROMPT_PREFIX = 'Animate this image.';
 
+// The two sites this extension automates. Referenced together in the popup's
+// welcome text and in the "wrong tab" batch error — single source so adding
+// a third site (or renaming one) doesn't mean hunting down every mention.
+export const SUPPORTED_SITES = [
+  { name: 'Vibes AI', url: 'https://vibes.ai/' },
+  { name: 'Google Flow', url: 'https://labs.google/fx/es/tools/flow' },
+] as const;
+
 export const Alarms = {
   SceneTimeout: 'scene_timeout',
 } as const;
