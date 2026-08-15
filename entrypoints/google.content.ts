@@ -11,6 +11,10 @@ const MEDIA_STABILIZE_MS = 3000;
 const MEDIA_POLL_MAX_ATTEMPTS = 80;
 const MAX_GENERATION_ATTEMPTS = 4;
 const GENERATION_RETRY_DELAY_MS = 20000;
+// Google Flow genera entre 1 y 4 variantes por prompt, y a veces llegan en
+// tandas (de a 2) en vez de todas de golpe. No hay forma de saber de antemano
+// cuántas serán, así que 4 es solo el techo para cortar la espera si ya se llenó.
+const MAX_MEDIA_PER_BATCH = 4;
 
 // ── Abort flag ────────────────────────────────────────────────────────────────
 
@@ -235,18 +239,46 @@ async function submitPrompt(composer: HTMLElement): Promise<boolean> {
 
 // ── Image polling ─────────────────────────────────────────────────────────────
 
-// Takes a snapshot of all current image/video srcs so we can identify new ones
-// after generation completes.
-function getMediaSnapshot(): Set<string> {
-  return new Set(
-    Array.from(document.querySelectorAll('img, video'))
-      .map((el) => {
-        if (el.tagName === 'VIDEO')
-          return (el as HTMLVideoElement).currentSrc || (el as HTMLVideoElement).src;
-        return (el as HTMLImageElement).src;
-      })
-      .filter(Boolean)
-  );
+// Cada tile generado (imagen o video) queda envuelto en un elemento con
+// data-tile-id="fe_id_<uuid>" — un identificador único y estable por resultado,
+// a diferencia del src (que puede ser blob: mientras carga y luego cambiar a
+// la URL final de /fx/api/trpc/media.getMediaUrlRedirect). El wrapper aparece
+// duplicado en el DOM (contenedor externo + interno) con el mismo id, por eso
+// deduplicamos.
+interface MediaTile {
+  id: string;
+  isVideo: boolean;
+  src: string;
+}
+
+function getMediaTiles(): MediaTile[] {
+  const seen = new Set<string>();
+  const tiles: MediaTile[] = [];
+
+  document.querySelectorAll<HTMLElement>('[data-tile-id]').forEach((wrapper) => {
+    const id = wrapper.getAttribute('data-tile-id');
+    if (!id || seen.has(id)) return;
+
+    const media = wrapper.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
+    if (!media) return;
+
+    const isVideo = media.tagName === 'VIDEO';
+    const src = isVideo
+      ? (media as HTMLVideoElement).currentSrc || (media as HTMLVideoElement).src
+      : (media as HTMLImageElement).src;
+    if (!src) return;
+
+    seen.add(id);
+    tiles.push({ id, isVideo, src });
+  });
+
+  return tiles;
+}
+
+// Snapshot de los tile-ids ya presentes antes de enviar el prompt, para poder
+// distinguir después cuáles son resultados nuevos de esta generación.
+function getMediaTileIds(): Set<string> {
+  return new Set(getMediaTiles().map((t) => t.id));
 }
 
 // Converts a blob: URL to a data URL so the extension popup can fetch it
@@ -263,17 +295,26 @@ async function blobUrlToDataUrl(blobUrl: string): Promise<string> {
 }
 
 type MediaPollResult =
-  | { status: 'success'; url: string }
+  | { status: 'success'; urls: string[] }
   | { status: 'timeout' }
   | { status: 'aborted' }
   | { status: 'crashed' };
 
+// Espera a que aparezcan tiles nuevos y, una vez que aparece el primero, sigue
+// esperando por si llegan más (Google Flow puede generar de 1 a 4 variantes
+// por prompt, y a veces las entrega en tandas en vez de todas de golpe). El
+// batch se da por completo cuando el conteo de tiles nuevos deja de crecer
+// durante MEDIA_STABILIZE_MS, o cuando se alcanza el techo de
+// MAX_MEDIA_PER_BATCH.
 async function waitForNewMedia(
-  beforeSnapshot: Set<string>,
+  beforeIds: Set<string>,
   isVideo: boolean = false
 ): Promise<MediaPollResult> {
   // Para video damos hasta 6 minutos (240 intentos * 1.5s = 360s)
   const maxAttempts = isVideo ? 240 : MEDIA_POLL_MAX_ATTEMPTS;
+
+  let lastCount = 0;
+  let stableSince: number | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (aborted) return { status: 'aborted' };
@@ -281,34 +322,21 @@ async function waitForNewMedia(
     // Si el editor desapareció del DOM, la página crasheó o recargó (pantalla negra)
     if (!getComposer()) return { status: 'crashed' };
 
-    const currentMedia = Array.from(document.querySelectorAll('img, video'));
-    const newMedia = currentMedia.filter((media) => {
-      if (isVideo && media.tagName !== 'VIDEO') return false;
-      if (!isVideo && media.tagName !== 'IMG') return false;
+    const newTiles = getMediaTiles().filter((t) => t.isVideo === isVideo && !beforeIds.has(t.id));
 
-      const src =
-        media.tagName === 'VIDEO'
-          ? (media as HTMLVideoElement).currentSrc || (media as HTMLVideoElement).src
-          : (media as HTMLImageElement).src;
-      if (!src || beforeSnapshot.has(src)) return false;
+    if (newTiles.length > 0) {
+      if (newTiles.length !== lastCount) {
+        // Llegó un tile nuevo (o varios): reinicia la ventana de estabilización.
+        lastCount = newTiles.length;
+        stableSince = Date.now();
+      }
 
-      if (media.tagName === 'VIDEO') return true;
-      // Para imágenes, solo consideramos las que parecen contenido generado.
-      return (
-        src.startsWith('blob:') ||
-        (media as HTMLImageElement).naturalWidth > 150 ||
-        (media as HTMLImageElement).width > 150
-      );
-    });
+      const reachedMax = newTiles.length >= MAX_MEDIA_PER_BATCH;
+      const isStable = stableSince !== null && Date.now() - stableSince >= MEDIA_STABILIZE_MS;
 
-    if (newMedia.length > 0) {
-      await sleepAbortable(MEDIA_STABILIZE_MS);
-      if (aborted) return { status: 'aborted' };
-      const finalSrc =
-        newMedia[0].tagName === 'VIDEO'
-          ? (newMedia[0] as HTMLVideoElement).currentSrc || (newMedia[0] as HTMLVideoElement).src
-          : (newMedia[0] as HTMLImageElement).src;
-      return { status: 'success', url: finalSrc };
+      if (reachedMax || isStable) {
+        return { status: 'success', urls: newTiles.map((t) => t.src) };
+      }
     }
 
     await sleep(MEDIA_POLL_INTERVAL_MS);
@@ -347,7 +375,7 @@ async function handleImageMode(
 
   if (sceneNumber === undefined) return;
 
-  const beforeSnapshot = getMediaSnapshot();
+  const beforeIds = getMediaTileIds();
 
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
     if (aborted) return;
@@ -360,7 +388,7 @@ async function handleImageMode(
       cooldownMs: MEDIA_POLL_MAX_ATTEMPTS * MEDIA_POLL_INTERVAL_MS,
     });
 
-    const result = await waitForNewMedia(beforeSnapshot);
+    const result = await waitForNewMedia(beforeIds);
 
     if (result.status === 'aborted') return;
     if (result.status === 'crashed') {
@@ -400,20 +428,27 @@ async function handleImageMode(
     }
 
     // success
-    log({ sceneNumber, step: 'Imagen lista, descargando', kind: LogKinds.Success });
+    log({
+      sceneNumber,
+      step: `${result.urls.length} imagen(es) lista(s), descargando`,
+      kind: LogKinds.Success,
+    });
 
-    let finalUrl = result.url;
-    if (finalUrl.startsWith('blob:')) {
-      try {
-        finalUrl = await blobUrlToDataUrl(finalUrl);
-      } catch {
-        // Keep the blob URL as fallback; the popup's fetchBlobWithRetry may handle it.
-      }
-    }
+    const finalUrls = await Promise.all(
+      result.urls.map(async (url) => {
+        if (!url.startsWith('blob:')) return url;
+        try {
+          return await blobUrlToDataUrl(url);
+        } catch {
+          // Keep the blob URL as fallback; the popup's fetchBlobWithRetry may handle it.
+          return url;
+        }
+      })
+    );
 
     await browser.runtime.sendMessage({
       action: Actions.DownloadMediaDirect,
-      urls: [finalUrl],
+      urls: finalUrls,
       sceneNumber,
     });
     return;
@@ -486,7 +521,7 @@ async function handleVideoMode(
 
   if (sceneNumber === undefined) return;
 
-  const beforeSnapshot = getMediaSnapshot();
+  const beforeIds = getMediaTileIds();
 
   // 5. Esperar resultado
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
@@ -500,7 +535,7 @@ async function handleVideoMode(
       cooldownMs: 240 * MEDIA_POLL_INTERVAL_MS,
     });
 
-    const result = await waitForNewMedia(beforeSnapshot, true);
+    const result = await waitForNewMedia(beforeIds, true);
 
     if (result.status === 'aborted') return;
     if (result.status === 'crashed') {
@@ -542,18 +577,21 @@ async function handleVideoMode(
     // success
     log({ sceneNumber, step: 'Video listo, descargando', kind: LogKinds.Success });
 
-    let finalUrl = result.url;
-    if (finalUrl.startsWith('blob:')) {
-      try {
-        finalUrl = await blobUrlToDataUrl(finalUrl);
-      } catch {
-        // Fallback
-      }
-    }
+    const finalUrls = await Promise.all(
+      result.urls.map(async (url) => {
+        if (!url.startsWith('blob:')) return url;
+        try {
+          return await blobUrlToDataUrl(url);
+        } catch {
+          // Fallback
+          return url;
+        }
+      })
+    );
 
     await browser.runtime.sendMessage({
       action: Actions.DownloadMediaDirect,
-      urls: [finalUrl],
+      urls: finalUrls,
       sceneNumber,
     });
     return;

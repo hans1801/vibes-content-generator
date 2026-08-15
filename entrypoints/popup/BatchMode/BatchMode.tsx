@@ -5,8 +5,9 @@ import { storeProjectHandle, fileToDataUrl } from '../utils';
 import {
   ProjectDirs,
   ProjectFiles,
-  SCENE_MEDIA_FOLDER_PATTERN,
+  SCENE_REF_FILE_PATTERN,
   VIDEO_PROMPT_PREFIX,
+  pad4,
   sceneRefImageName,
 } from '../../../lib/constants';
 
@@ -65,34 +66,21 @@ function getPreCompleted(allScenes: SceneData[], pendingScenes: SceneData[]): nu
   return allScenes.map((s) => s.scene_number).filter((n) => !pendingNums.has(n));
 }
 
+// Returns the scene numbers that already have a generated flat ref file
+// (scene_NNNN.jpeg|mp4) in the project's images/videos subdir for the given
+// batch type — i.e. already done.
 async function readCompletedScenes(
   handle: FileSystemDirectoryHandle,
-  dirName: string
+  type: BatchMode
 ): Promise<Set<number>> {
   const completed = new Set<number>();
   try {
+    const dirName = type === BatchModes.Image ? ProjectDirs.Images : ProjectDirs.Videos;
     const dir = await handle.getDirectoryHandle(dirName);
-    for await (const [name, entry] of dir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
-      const kind = (entry as FileSystemHandle & { kind: string }).kind;
-
-      if (kind === 'directory') {
-        const m = name.match(SCENE_MEDIA_FOLDER_PATTERN);
-        if (!m) continue;
-        const sceneDir = entry as FileSystemDirectoryHandle;
-        let hasFile = false;
-        for await (const [, fileEntry] of sceneDir as unknown as AsyncIterable<
-          [string, FileSystemHandle]
-        >) {
-          if ((fileEntry as FileSystemHandle & { kind: string }).kind === 'file') {
-            hasFile = true;
-            break;
-          }
-        }
-        if (hasFile) completed.add(parseInt(m[1]));
-      } else if (kind === 'file') {
-        const m = name.match(/^scene_(\d+)\.(jpeg|mp4)$/);
-        if (m) completed.add(parseInt(m[1]));
-      }
+    for await (const [name, entry] of dir.entries()) {
+      if (entry.kind !== 'file') continue;
+      const m = name.match(SCENE_REF_FILE_PATTERN);
+      if (m) completed.add(parseInt(m[1]));
     }
   } catch {
     /* dir doesn't exist yet */
@@ -164,7 +152,7 @@ function StatusSceneGrid({
         <div
           key={n}
           className={`scene-cell scene-cell--${sceneStatuses[n] ?? 'pending'}`}
-          title={`Escena ${String(n).padStart(4, '0')}`}
+          title={`Escena ${pad4(n)}`}
         >
           {SCENE_ICONS[sceneStatuses[n]] ?? '·'}
         </div>
@@ -195,35 +183,36 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
     : 0;
   const pendingScenes = batchScenes.filter((s) => !completedScenes.has(s.scene_number));
 
-  const readCompleted = (handle: FileSystemDirectoryHandle, type: BatchMode) =>
-    readCompletedScenes(
-      handle,
-      type === BatchModes.Image ? ProjectDirs.Images : ProjectDirs.Videos
-    );
-
   const selectFolder = async () => {
+    let handle: FileSystemDirectoryHandle;
     try {
-      const handle = await showDirectoryPicker({ mode: 'readwrite' });
-      setProjectHandle(handle);
-      setProjectName(handle.name);
-      grantedHandleRef.current = handle;
-      await storeProjectHandle(handle);
-      setStatusMsg('');
+      handle = await showDirectoryPicker({ mode: 'readwrite' });
+    } catch (err: unknown) {
+      if ((err as DOMException)?.name !== 'AbortError') {
+        setStatusMsg('No se pudo abrir el selector de carpetas.');
+      }
+      return;
+    }
 
+    setProjectHandle(handle);
+    setProjectName(handle.name);
+    grantedHandleRef.current = handle;
+    setStatusMsg('');
+
+    try {
+      await storeProjectHandle(handle);
       const scriptFile = await (await handle.getFileHandle(ProjectFiles.Script)).getFile();
       const { scenes } = JSON.parse(await scriptFile.text()) as { scenes: SceneData[] };
       setBatchScenes(scenes);
-      setCompletedScenes(await readCompleted(handle, batchType));
-    } catch (err: unknown) {
-      if ((err as DOMException)?.name !== 'AbortError') {
-        setStatusMsg('No se pudo leer la carpeta del proyecto.');
-      }
+      setCompletedScenes(await readCompletedScenes(handle, batchType));
+    } catch {
+      setStatusMsg('No se pudo leer script.json del proyecto.');
     }
   };
 
   const switchBatchType = async (type: BatchMode) => {
     setBatchType(type);
-    if (projectHandle) setCompletedScenes(await readCompleted(projectHandle, type));
+    if (projectHandle) setCompletedScenes(await readCompletedScenes(projectHandle, type));
   };
 
   const startBatch = async () => {
@@ -254,10 +243,10 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
       const scenes: SceneInput[] =
         batchType === BatchModes.Image
           ? pendingScenes.map((s) => ({
-              kind: BatchModes.Image,
-              sceneNumber: s.scene_number,
-              imagePrompt: buildImagePrompt(s),
-            }))
+            kind: BatchModes.Image,
+            sceneNumber: s.scene_number,
+            imagePrompt: buildImagePrompt(s),
+          }))
           : await buildVideoScenes(projectHandle, pendingScenes);
 
       await browser.runtime.sendMessage({
@@ -277,14 +266,14 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
   };
 
   const stopBatch = () =>
-    browser.runtime.sendMessage({ action: Actions.StopBatch }).catch(() => {});
+    browser.runtime.sendMessage({ action: Actions.StopBatch }).catch(() => { });
 
   const skipCurrentScene = () => {
     if (!batchStatus) return;
     const currentSceneNum = batchStatus.sceneNumbers[batchStatus.currentIndex];
     browser.runtime
       .sendMessage({ action: Actions.SceneFailed, sceneNumber: currentSceneNum })
-      .catch(() => {});
+      .catch(() => { });
   };
 
   if (isBatchActive) {
@@ -294,7 +283,7 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           <span className="project-title">{batchStatus!.projectName}</span>
           <span className="project-count">
             {batchStatus!.mode === BatchModes.Image ? '🖼 Imágenes · ' : '🎬 Videos · '}
-            Escena {String(batchStatus!.currentIndex + 1).padStart(4, '0')} /{' '}
+            Escena {pad4(batchStatus!.currentIndex + 1)} /{' '}
             {batchStatus!.totalScenes} · {doneCount} listas
           </span>
         </div>
@@ -366,7 +355,7 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
               <div
                 key={s.scene_number}
                 className={`scene-cell ${completedScenes.has(s.scene_number) ? 'scene-cell--done' : ''}`}
-                title={`Escena ${String(s.scene_number).padStart(4, '0')}`}
+                title={`Escena ${pad4(s.scene_number)}`}
               >
                 {completedScenes.has(s.scene_number) ? '✓' : '·'}
               </div>
