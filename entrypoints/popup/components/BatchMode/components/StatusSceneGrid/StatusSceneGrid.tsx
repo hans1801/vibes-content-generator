@@ -1,6 +1,6 @@
-import { SceneStatuses } from '../../../../../lib/types';
-import type { SceneStatus } from '../../../../../lib/types';
-import { pad4 } from '../../../../../lib/constants';
+import { SceneStatuses } from '../../../../../../lib/types';
+import type { SceneStatus } from '../../../../../../lib/types';
+import { pad4 } from '../../../../../../lib/constants';
 
 const SCENE_ICONS: Record<string, string> = {
   [SceneStatuses.Processing]: '⏳',

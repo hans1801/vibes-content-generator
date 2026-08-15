@@ -1,4 +1,4 @@
-import { VIDEO_PROMPT_PREFIX } from '../../../lib/constants';
+import { VIDEO_PROMPT_PREFIX } from '../../../../lib/constants';
 import type { SceneData } from './BatchMode.types';
 
 const clean = (s?: string) => s?.trim() ?? '';

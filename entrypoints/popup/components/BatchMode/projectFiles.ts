@@ -1,7 +1,7 @@
-import type { BatchMode, SceneInput } from '../../../lib/types';
-import { BatchModes } from '../../../lib/types';
-import { ProjectDirs, SCENE_REF_FILE_PATTERN, sceneRefImageName } from '../../../lib/constants';
-import { fileToDataUrl } from '../utils';
+import type { BatchMode, SceneInput } from '../../../../lib/types';
+import { BatchModes } from '../../../../lib/types';
+import { ProjectDirs, SCENE_REF_FILE_PATTERN, sceneRefImageName } from '../../../../lib/constants';
+import { fileToDataUrl } from '../../utils';
 import { buildImagePrompt, buildVideoPrompt } from './scenePrompts';
 import type { SceneData } from './BatchMode.types';
 

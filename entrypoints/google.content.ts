@@ -1,5 +1,5 @@
 import { Actions, BatchModes, LogKinds } from '../lib/types';
-import type { ExtensionMessage, ContentResponse, LogKind } from '../lib/types';
+import type { ExtensionMessage, ContentResponse, LogUpdate } from '../lib/types';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -21,14 +21,6 @@ const MAX_MEDIA_PER_BATCH = 4;
 let aborted = false;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
-
-interface LogUpdate {
-  sceneNumber?: number;
-  step: string;
-  kind: LogKind;
-  attempt?: { current: number; max: number };
-  cooldownMs?: number;
-}
 
 function log(update: LogUpdate) {
   browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
@@ -348,7 +340,7 @@ async function waitForNewMedia(
 
 async function handleImageMode(
   prompt: string,
-  sceneNumber: number | undefined,
+  sceneNumber: number,
   sendResponse: (r: ContentResponse) => void
 ) {
   log({ sceneNumber, step: 'Generando imagen en Google Flow', kind: LogKinds.Info });
@@ -461,7 +453,7 @@ async function handleVideoMode(
   prompt: string,
   imageBase64: string | null,
   imageName: string | null,
-  sceneNumber: number | undefined,
+  sceneNumber: number,
   sendResponse: (r: ContentResponse) => void
 ) {
   log({ sceneNumber, step: 'Preparando video en Google Flow', kind: LogKinds.Info });

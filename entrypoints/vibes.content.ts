@@ -1,5 +1,5 @@
 import { Actions, BatchModes, LogKinds } from '../lib/types';
-import type { ExtensionMessage, ContentResponse, LogKind } from '../lib/types';
+import type { ExtensionMessage, ContentResponse, LogUpdate } from '../lib/types';
 import {
   ComposerSelectors,
   GallerySelectors,
@@ -39,14 +39,6 @@ const REMOVE_START_FRAME_LABELS = ['Remove start frame', 'Eliminar el marco de i
 let aborted = false;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
-
-interface LogUpdate {
-  sceneNumber?: number;
-  step: string;
-  kind: LogKind;
-  attempt?: { current: number; max: number };
-  cooldownMs?: number;
-}
 
 function log(update: LogUpdate) {
   browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
@@ -409,7 +401,7 @@ async function selectFirstTile(pickerDialog: HTMLElement): Promise<boolean> {
 async function attachStartFrame(
   imageBase64: string,
   imageName: string,
-  sceneNumber: number | undefined
+  sceneNumber: number
 ): Promise<boolean> {
   log({ sceneNumber, step: 'Adjuntando start frame', kind: LogKinds.Info });
 
@@ -666,7 +658,7 @@ async function generateWithRetries(
 
 async function handleImageMode(
   prompt: string,
-  sceneNumber: number | undefined,
+  sceneNumber: number,
   sendResponse: (r: ContentResponse) => void
 ) {
   log({ sceneNumber, step: 'Generando imagen', kind: LogKinds.Info });
@@ -715,7 +707,7 @@ async function handleVideoMode(
   prompt: string,
   imageBase64: string | null,
   imageName: string | null,
-  sceneNumber: number | undefined,
+  sceneNumber: number,
   sendResponse: (r: ContentResponse) => void
 ) {
   log({ sceneNumber, step: 'Generando video', kind: LogKinds.Info });

@@ -27,6 +27,17 @@ export const SceneStatuses = {
 
 export type SceneStatus = (typeof SceneStatuses)[keyof typeof SceneStatuses];
 
+// Which of the two supported sites a batch is running against — needed
+// because some post-processing (the vibes.ai watermark blur) only applies
+// to one of them. Decided once in the popup (it has the active tab's URL)
+// and carried through StartBatch → BatchState → PendingWrite.
+export const BatchSites = {
+  Vibes: 'vibes',
+  Flow: 'flow',
+} as const;
+
+export type BatchSite = (typeof BatchSites)[keyof typeof BatchSites];
+
 // Video scenes carry the already-generated reference image (base64) as the
 // start frame — video generation always animates a prior image.
 export type SceneInput =
@@ -43,6 +54,7 @@ export type SceneInput =
 // (Vibes returns 4, Google Flow returns 1+). urls[] covers both.
 export interface PendingWrite {
   mode: BatchMode;
+  site: BatchSite;
   sceneNumber: number;
   urls: string[];
 }
@@ -66,7 +78,7 @@ export interface FillPromptMessage {
   mediaType: BatchMode;
   imageBase64: string | null;
   imageName: string | null;
-  sceneNumber?: number;
+  sceneNumber: number;
 }
 
 export interface StartBatchMessage {
@@ -76,6 +88,7 @@ export interface StartBatchMessage {
   tabId: number;
   preCompletedSceneNumbers: number[];
   mode: BatchMode;
+  site: BatchSite;
 }
 
 export interface StopBatchMessage {
@@ -120,17 +133,26 @@ export type LogKind = (typeof LogKinds)[keyof typeof LogKinds];
 // can show a live status without requiring its own DevTools console.
 export interface LogMessage {
   action: typeof Actions.Log;
-  sceneNumber?: number;
+  sceneNumber: number;
   step: string;
   kind: LogKind;
   attempt?: { current: number; max: number };
   cooldownMs?: number;
 }
 
+// What background.ts and each content script pass to their local log()
+// helper — same shape as LogMessage minus the action tag, which log() adds.
+export type LogUpdate = Omit<LogMessage, 'action'>;
+
 export interface NativeClickMessage {
   action: typeof Actions.NativeClick;
   x: number;
   y: number;
+}
+
+export interface NativeTypeMessage {
+  action: typeof Actions.NativeType;
+  text: string;
 }
 
 export type ExtensionMessage =
@@ -143,7 +165,8 @@ export type ExtensionMessage =
   | SceneFailedMessage
   | BatchStatusMessage
   | LogMessage
-  | NativeClickMessage;
+  | NativeClickMessage
+  | NativeTypeMessage;
 
 export interface ContentResponse {
   success: boolean;

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Actions, SceneStatuses, BatchModes } from '../../../lib/types';
-import type { BatchMode, BatchStatus, SceneInput } from '../../../lib/types';
-import { storeProjectHandle } from '../utils';
-import { ProjectFiles, SUPPORTED_SITES } from '../../../lib/constants';
+import { Actions, SceneStatuses, BatchModes, BatchSites } from '../../../../lib/types';
+import type { BatchMode, BatchSite, BatchStatus, SceneInput } from '../../../../lib/types';
+import { storeProjectHandle } from '../../utils';
+import { ProjectFiles, SUPPORTED_SITES } from '../../../../lib/constants';
 import { ActiveBatchView } from './components/ActiveBatchView';
 import { ProjectSetupView } from './components/ProjectSetupView';
 import { getPreCompleted } from './scenePrompts';
@@ -14,9 +14,12 @@ import {
 } from './projectFiles';
 import type { SceneData } from './BatchMode.types';
 
-declare function showDirectoryPicker(options?: {
-  mode?: 'read' | 'readwrite';
-}): Promise<FileSystemDirectoryHandle>;
+// Only vibes.ai stamps a watermark that needs blurring (see mediaDownload.ts)
+// — default to Flow when the tab's URL is missing/unrecognized so we never
+// blur a Flow-generated image by mistake.
+function detectSite(tabUrl: string | undefined): BatchSite {
+  return tabUrl?.includes('vibes.ai') ? BatchSites.Vibes : BatchSites.Flow;
+}
 
 interface Props {
   batchStatus: BatchStatus | null;
@@ -110,6 +113,7 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
         tabId: tab.id,
         preCompletedSceneNumbers: getPreCompleted(batchScenes, pendingScenes),
         mode: batchType,
+        site: detectSite(tab.url),
       });
       setStatusMsg('');
     } catch (err: unknown) {
