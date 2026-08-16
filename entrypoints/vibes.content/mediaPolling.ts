@@ -1,4 +1,4 @@
-import { Actions, LogKinds, BatchModes, type BatchMode } from '../../lib/types';
+import { Actions, LogKinds, LogLevels, BatchModes, type BatchMode } from '../../lib/types';
 import { GallerySelectors } from '../../lib/selectors/vibes';
 import {
   MEDIA_POLL_INTERVAL_MS,
@@ -190,6 +190,7 @@ export async function generateWithRetries(
         sceneNumber,
         step: 'Reintentando generación',
         kind: LogKinds.Retry,
+        level: LogLevels.Step,
         attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
         cooldownMs: GENERATION_RETRY_DELAY_MS,
       });
@@ -207,6 +208,7 @@ export async function generateWithRetries(
       sceneNumber,
       step: 'Esperando generación',
       kind: LogKinds.Info,
+      level: LogLevels.Step,
       attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
       cooldownMs: BATCH_ID_CAPTURE_TIMEOUT_MS + settleTimeoutMs,
     });
@@ -222,6 +224,7 @@ export async function generateWithRetries(
           sceneNumber,
           step: `${result.urls.length} archivo(s) listo(s), descargando`,
           kind: LogKinds.Success,
+          level: LogLevels.Step,
         });
         await browser.runtime.sendMessage({
           action: Actions.DownloadMediaDirect,
@@ -237,6 +240,7 @@ export async function generateWithRetries(
             sceneNumber,
             step: 'Generación falló tras todos los intentos',
             kind: LogKinds.Error,
+            level: LogLevels.Step,
           });
           await reportSceneFailed(
             sceneNumber,

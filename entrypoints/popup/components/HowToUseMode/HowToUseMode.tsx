@@ -3,26 +3,15 @@ import { SUPPORTED_SITES } from '../../../../lib/constants';
 
 const PROMPT_TEXT = `Convert the provided video script into the following JSON structure.
 
-For each scene, generate:
-
-* scene_number
-* image_prompt
-* video_prompt
-* narration
+For each scene, generate: scene_number, image_prompt, video_prompt, narration.
 
 Requirements:
 
-* image_prompt must contain exactly the content from the "Image Prompt" section converted into a single plain text string.
-* video_prompt must contain exactly the content from the "Video Prompt" section converted into a single plain text string.
-* narration must contain exactly the content from the "Narration" section.
-* Do not rewrite, improve, summarize, embellish, or reinterpret any scene.
-* Preserve all scene details, descriptions, actions, lighting, composition, atmosphere, style, and duration information.
-* Keep prompts in English only if the source prompts are in English; otherwise preserve the original language.
-* Keep narrations in their original language.
-* Return only valid JSON.
-* Do not use nested objects.
-* Do not omit any information from the original scene.
-* Create one JSON scene entry for every scene found in the script.
+* image_prompt / video_prompt: exact content from the "Image Prompt" / "Video Prompt" sections, as a single plain text string — no markdown, bullet points, bold, headers, or line breaks.
+* narration: exact content from the "Narration" section, in its original language.
+* Do not rewrite, improve, summarize, embellish, or reinterpret any scene — preserve all details (descriptions, actions, lighting, composition, atmosphere, style, duration).
+* Keep prompts in their original language.
+* Return only valid JSON, no nested objects, no omitted scenes — one entry per scene found in the script.
 
 Output format:
 

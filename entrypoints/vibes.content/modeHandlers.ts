@@ -1,4 +1,4 @@
-import { BatchModes, LogKinds } from '../../lib/types';
+import { BatchModes, LogKinds, LogLevels } from '../../lib/types';
 import { GenerateButtonSelectors } from '../../lib/selectors/vibes';
 import {
   IMAGE_SCENE_RETRY_DELAY_MS,
@@ -14,7 +14,7 @@ import { generateWithRetries, reportSceneFailed } from './mediaPolling';
 // ── Mode handlers ─────────────────────────────────────────────────────────────
 
 export async function handleImageMode(prompt: string, sceneNumber: number) {
-  log({ sceneNumber, step: 'Generando imagen', kind: LogKinds.Info });
+  log({ sceneNumber, step: 'Generando imagen', kind: LogKinds.Info, level: LogLevels.Mode });
 
   const switched = await ensureMode(BatchModes.Image);
   if (!switched) {
@@ -52,7 +52,7 @@ export async function handleVideoMode(
     return;
   }
 
-  log({ sceneNumber, step: 'Generando video', kind: LogKinds.Info });
+  log({ sceneNumber, step: 'Generando video', kind: LogKinds.Info, level: LogLevels.Mode });
 
   const switched = await ensureMode(BatchModes.Video);
   if (!switched) {

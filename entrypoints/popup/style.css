@@ -210,10 +210,17 @@ h1 {
   margin: 12px 0 0;
 }
 
+.log-history {
+  margin-top: 14px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .log-panel {
   --accent: #6366f1;
-  margin-top: 14px;
-  padding-top: 10px;
   background: #111;
   border-radius: 8px;
   padding: 10px;

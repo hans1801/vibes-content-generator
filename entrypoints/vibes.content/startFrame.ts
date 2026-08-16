@@ -1,4 +1,4 @@
-import { LogKinds } from '../../lib/types';
+import { LogKinds, LogLevels } from '../../lib/types';
 import { StartEndFrameSelectors } from '../../lib/selectors/vibes';
 import {
   MAX_UPLOAD_ATTEMPTS,
@@ -241,6 +241,7 @@ async function uploadWithRetries(
       sceneNumber,
       step: 'Subiendo start frame',
       kind: LogKinds.Info,
+      level: LogLevels.Detail,
       attempt: { current: attempt, max: MAX_UPLOAD_ATTEMPTS },
       cooldownMs: UPLOAD_WAIT_TIMEOUT_MS,
     });
@@ -260,6 +261,7 @@ async function uploadWithRetries(
       sceneNumber,
       step: 'Subida falló, reintentando',
       kind: LogKinds.Retry,
+      level: LogLevels.Detail,
       attempt: { current: attempt, max: MAX_UPLOAD_ATTEMPTS },
       cooldownMs: UPLOAD_RETRY_DELAY_MS,
     });
@@ -276,24 +278,44 @@ export async function attachStartFrame(
   imageName: string,
   sceneNumber: number
 ): Promise<boolean> {
-  log({ sceneNumber, step: 'Adjuntando start frame', kind: LogKinds.Info });
+  log({
+    sceneNumber,
+    step: 'Adjuntando start frame',
+    kind: LogKinds.Info,
+    level: LogLevels.Step,
+  });
 
   const addStartBtn = await ensureStartEndFramePanel();
   if (!addStartBtn) {
-    log({ sceneNumber, step: 'No se pudo adjuntar el start frame', kind: LogKinds.Error });
+    log({
+      sceneNumber,
+      step: 'No se pudo adjuntar el start frame',
+      kind: LogKinds.Error,
+      level: LogLevels.Step,
+    });
     return false;
   }
   await simulateClick(addStartBtn);
 
   const uploadResult = await uploadWithRetries(imageBase64, imageName, sceneNumber);
   if (uploadResult.status !== UploadResults.Success) {
-    log({ sceneNumber, step: 'No se pudo adjuntar el start frame', kind: LogKinds.Error });
+    log({
+      sceneNumber,
+      step: 'No se pudo adjuntar el start frame',
+      kind: LogKinds.Error,
+      level: LogLevels.Step,
+    });
     closeAnyOpenDialog();
     await sleep(300);
     return false;
   }
 
-  log({ sceneNumber, step: 'Start frame subido', kind: LogKinds.Success });
+  log({
+    sceneNumber,
+    step: 'Start frame subido',
+    kind: LogKinds.Success,
+    level: LogLevels.Step,
+  });
 
   const { pickerDialogAfter } = uploadResult;
   const selected = await selectFirstTile(pickerDialogAfter);

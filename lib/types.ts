@@ -68,6 +68,8 @@ export interface BatchStatus {
   sceneNumbers: number[];
   sceneStatuses: Record<number, SceneStatus>;
   pendingWrite: PendingWrite | null;
+  // Current scene's log tree (see LogLevels), persisted across popup reopens.
+  logStack: LogEntry[];
 }
 
 // ── Message contracts ─────────────────────────────────────────────────────────
@@ -137,6 +139,16 @@ export const LogKinds = {
 
 export type LogKind = (typeof LogKinds)[keyof typeof LogKinds];
 
+// Depth in the current scene's step tree (0 = scene, deeper = nested step).
+export const LogLevels = {
+  Scene: 0,
+  Mode: 1,
+  Step: 2,
+  Detail: 3,
+} as const;
+
+export type LogLevel = (typeof LogLevels)[keyof typeof LogLevels];
+
 // Step-level progress markers forwarded from content scripts so the popup
 // can show a live status without requiring its own DevTools console.
 export interface LogMessage {
@@ -144,6 +156,7 @@ export interface LogMessage {
   sceneNumber: number;
   step: string;
   kind: LogKind;
+  level: LogLevel;
   attempt?: { current: number; max: number };
   cooldownMs?: number;
 }
@@ -151,6 +164,9 @@ export interface LogMessage {
 // What background.ts and each content script pass to their local log()
 // helper — same shape as LogMessage minus the action tag, which log() adds.
 export type LogUpdate = Omit<LogMessage, 'action'>;
+
+// LogUpdate + receivedAt, as persisted by batchStore.
+export type LogEntry = LogUpdate & { receivedAt: number };
 
 export interface NativeClickMessage {
   action: typeof Actions.NativeClick;

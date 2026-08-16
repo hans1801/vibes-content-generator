@@ -26,7 +26,9 @@ const MODE_TABS: { mode: AppMode; label: string }[] = [
 export default function App() {
   const [mode, setMode] = useState<AppMode>(AppModes.HowToUse);
   const [batchStatus, setBatchStatus] = useState<BatchStatus | null>(null);
-  const [logStatus, setLogStatus] = useState<LogStatus | null>(null);
+  // Collapsing step tree for the current scene (see StatusPanel).
+  const [logHistory, setLogHistory] = useState<LogStatus[]>([]);
+  const logSceneRef = useRef<number | null>(null);
   const grantedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   async function processPendingWrite(pw: PendingWrite) {
@@ -88,6 +90,10 @@ export default function App() {
           setBatchStatus(s);
           if (s.active) setMode(AppModes.Project);
           if (s.pendingWrite) processPendingWrite(s.pendingWrite);
+          if (s.logStack.length > 0) {
+            logSceneRef.current = s.logStack[0].sceneNumber;
+            setLogHistory(s.logStack);
+          }
         }
       } catch {
         /* Background service worker not yet available. */
@@ -105,13 +111,22 @@ export default function App() {
         return;
       }
       if (msg.action === Actions.Log) {
-        setLogStatus({
+        const entry: LogStatus = {
           sceneNumber: msg.sceneNumber,
           step: msg.step,
           kind: msg.kind,
+          level: msg.level,
           attempt: msg.attempt,
           cooldownMs: msg.cooldownMs,
           receivedAt: Date.now(),
+        };
+        const sameScene = logSceneRef.current === msg.sceneNumber;
+        logSceneRef.current = msg.sceneNumber;
+        setLogHistory((prev) => {
+          // Replace depth N, drop anything deeper.
+          const stack = sameScene ? prev.slice(0, entry.level) : [];
+          stack[entry.level] = entry;
+          return stack;
         });
       }
     };
@@ -142,10 +157,17 @@ export default function App() {
 
       {mode === AppModes.HowToUse && <HowToUseMode />}
       {mode === AppModes.Project && (
-        <BatchMode batchStatus={batchStatus} grantedHandleRef={grantedHandleRef} />
+        <BatchMode
+          batchStatus={batchStatus}
+          grantedHandleRef={grantedHandleRef}
+          onBatchStart={() => {
+            logSceneRef.current = null;
+            setLogHistory([]);
+          }}
+        />
       )}
 
-      <StatusPanel status={logStatus} />
+      <StatusPanel history={logHistory} />
 
       <p className="footer">v{browser.runtime.getManifest().version}</p>
     </div>

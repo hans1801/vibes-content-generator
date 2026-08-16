@@ -4,7 +4,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Content AI Generator',
-    version: '1.0.5',
+    version: '1.0.2',
     permissions: ['activeTab', 'tabs', 'storage', 'alarms', 'debugger', 'unlimitedStorage'],
     host_permissions: ['https://*.vibes.ai/*', 'https://*.fbcdn.net/*', 'https://labs.google/*'],
     browser_specific_settings: {

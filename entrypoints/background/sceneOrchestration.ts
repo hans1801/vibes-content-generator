@@ -1,4 +1,4 @@
-import { Actions, SceneStatuses, BatchModes, LogKinds } from '../../lib/types';
+import { Actions, SceneStatuses, BatchModes, LogKinds, LogLevels } from '../../lib/types';
 import { Alarms } from '../../lib/constants';
 import type { SceneInput, SendPromptMessage, LogUpdate } from '../../lib/types';
 import { batchStore } from './batchStore';
@@ -7,6 +7,8 @@ import { batchStore } from './batchStore';
 
 function log(update: LogUpdate) {
   browser.runtime.sendMessage({ action: Actions.Log, ...update }).catch(() => {});
+  // Doesn't round-trip through background's own onMessage, so persist directly.
+  void batchStore.pushLog(update);
 }
 
 // ── Message construction ──────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export async function runBatchSceneFrom(index: number) {
     sceneNumber: scene.sceneNumber,
     step: `Enviando prompt (escena ${index + 1}/${batch.scenes.length})`,
     kind: LogKinds.Info,
+    level: LogLevels.Scene,
   });
 
   // Silent-hang fallback — the content script's own messages normally end
@@ -82,6 +85,7 @@ export async function runBatchSceneFrom(index: number) {
       sceneNumber: scene.sceneNumber,
       step: err instanceof Error ? err.message : 'No se pudo contactar la pestaña.',
       kind: LogKinds.Error,
+      level: LogLevels.Scene,
       cooldownMs: retryDelayMs,
     });
 
@@ -109,7 +113,12 @@ export async function advanceAfterPendingWrite(sceneNumber: number) {
       errorCount > 0
         ? `Batch completo, ${errorCount} escena(s) con error`
         : 'Batch completo, sin errores';
-    log({ sceneNumber, step, kind: errorCount > 0 ? LogKinds.Error : LogKinds.Success });
+    log({
+      sceneNumber,
+      step,
+      kind: errorCount > 0 ? LogKinds.Error : LogKinds.Success,
+      level: LogLevels.Scene,
+    });
     await runBatchSceneFrom(nextIdx);
     return;
   }
@@ -119,6 +128,7 @@ export async function advanceAfterPendingWrite(sceneNumber: number) {
     sceneNumber,
     step: 'Escena lista, siguiente en breve',
     kind: LogKinds.Success,
+    level: LogLevels.Scene,
     cooldownMs: nextDelayMs,
   });
   setTimeout(() => {
@@ -139,6 +149,7 @@ export async function markSceneErrorAndAdvance(
     sceneNumber,
     step: reason ?? 'Escena marcada como error, avanzando',
     kind: LogKinds.Error,
+    level: LogLevels.Scene,
   });
   await batchStore.setSceneStatus(sceneNumber, SceneStatuses.Error);
   await batchStore.clearPendingWrite();

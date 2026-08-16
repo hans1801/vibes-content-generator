@@ -24,9 +24,10 @@ function detectSite(tabUrl: string | undefined): BatchSite {
 interface Props {
   batchStatus: BatchStatus | null;
   grantedHandleRef: { current: FileSystemDirectoryHandle | null };
+  onBatchStart: () => void;
 }
 
-export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
+export default function BatchMode({ batchStatus, grantedHandleRef, onBatchStart }: Props) {
   const [projectHandle, setProjectHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [projectName, setProjectName] = useState('');
   const [batchScenes, setBatchScenes] = useState<SceneData[]>([]);
@@ -106,6 +107,7 @@ export default function BatchMode({ batchStatus, grantedHandleRef }: Props) {
           ? buildImageScenes(pendingScenes)
           : await buildVideoScenes(projectHandle, pendingScenes);
 
+      onBatchStart();
       await browser.runtime.sendMessage({
         action: Actions.StartBatch,
         projectName,

@@ -6,6 +6,8 @@ import type {
   SceneInput,
   BatchMode,
   BatchSite,
+  LogUpdate,
+  LogEntry,
 } from '../../lib/types';
 
 interface BatchState {
@@ -19,6 +21,9 @@ interface BatchState {
   sceneStatuses: Record<number, SceneStatus>;
   tabId: number;
   pendingWrite: PendingWrite | null;
+  logStack: LogEntry[];
+  // Internal only — tracks scene changes for pushLog's reset check.
+  lastLogSceneNumber: number | null;
 }
 
 const STORAGE_KEY = 'batch';
@@ -83,6 +88,18 @@ class BatchStore {
     await this.persist();
   }
 
+  // Same collapsing-stack logic as StatusPanel, persisted so it survives popup close/reopen.
+  public async pushLog(update: LogUpdate) {
+    if (!this.batch) return;
+    const entry: LogEntry = { ...update, receivedAt: Date.now() };
+    const sameScene = this.batch.lastLogSceneNumber === update.sceneNumber;
+    this.batch.lastLogSceneNumber = update.sceneNumber;
+    const stack = sameScene ? this.batch.logStack.slice(0, entry.level) : [];
+    stack[entry.level] = entry;
+    this.batch.logStack = stack;
+    await this.persist();
+  }
+
   private async persist() {
     await browser.storage.local.set({ [STORAGE_KEY]: this.batch });
   }
@@ -98,6 +115,7 @@ class BatchStore {
       sceneNumbers: this.batch.allSceneNumbers,
       sceneStatuses: { ...this.batch.sceneStatuses },
       pendingWrite: this.batch.pendingWrite,
+      logStack: this.batch.logStack ?? [],
     };
   }
 

@@ -32,6 +32,8 @@ export default defineBackground(() => {
         sceneStatuses: initialStatuses,
         tabId: message.tabId,
         pendingWrite: null,
+        logStack: [],
+        lastLogSceneNumber: null,
       });
       runBatchSceneFrom(0);
       return { ok: true };
@@ -51,6 +53,12 @@ export default defineBackground(() => {
 
     if (message.action === Actions.GetBatchStatus) {
       return batchStore.getStatus();
+    }
+
+    // Persist content-script logs so a reopened popup restores the tree.
+    if (message.action === Actions.Log) {
+      await batchStore.pushLog(message);
+      return;
     }
 
     if (message.action === Actions.DownloadMediaDirect) {
