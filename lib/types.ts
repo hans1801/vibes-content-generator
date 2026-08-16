@@ -1,5 +1,5 @@
 export const Actions = {
-  FillPrompt: 'fill_prompt',
+  SendPrompt: 'send_prompt',
   StartBatch: 'start_batch',
   StopBatch: 'stop_batch',
   GetBatchStatus: 'get_batch_status',
@@ -72,8 +72,8 @@ export interface BatchStatus {
 
 // ── Message contracts ─────────────────────────────────────────────────────────
 
-export interface FillPromptMessage {
-  action: typeof Actions.FillPrompt;
+export interface SendPromptMessage {
+  action: typeof Actions.SendPrompt;
   prompt: string;
   mediaType: BatchMode;
   imageBase64: string | null;
@@ -113,6 +113,14 @@ export interface WriteDoneMessage {
 export interface SceneFailedMessage {
   action: typeof Actions.SceneFailed;
   sceneNumber: number;
+  // Human-readable cause, shown in the log step instead of the generic
+  // fallback text. Optional — the SceneTimeout alarm path has no content
+  // script to ask, so it has no reason to give.
+  reason?: string;
+  // How long to wait before advancing to the next scene — content scripts
+  // know their own site's rate-limit behavior (see GENERATION_RETRY_DELAY_MS
+  // / UPLOAD_RETRY_DELAY_MS). Falls back to a short generic delay when unset.
+  retryAfterMs?: number;
 }
 
 export interface BatchStatusMessage {
@@ -156,7 +164,7 @@ export interface NativeTypeMessage {
 }
 
 export type ExtensionMessage =
-  | FillPromptMessage
+  | SendPromptMessage
   | StartBatchMessage
   | StopBatchMessage
   | GetBatchStatusMessage
@@ -167,9 +175,3 @@ export type ExtensionMessage =
   | LogMessage
   | NativeClickMessage
   | NativeTypeMessage;
-
-export interface ContentResponse {
-  success: boolean;
-  error?: string;
-  message?: string;
-}
