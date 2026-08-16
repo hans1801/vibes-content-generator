@@ -1,4 +1,4 @@
-import { WAIT_TIMEOUT_MS, WAIT_INTERVAL_MS, UPLOAD_WAIT_TIMEOUT_MS } from './constants';
+import { WAIT_TIMEOUT_MS, WAIT_INTERVAL_MS } from './constants';
 import { aborted } from './abortState';
 
 export function waitFor<T>(
@@ -38,30 +38,6 @@ export async function sleepAbortable(ms: number) {
     await sleep(Math.min(step, ms - waited));
     waited += step;
   }
-}
-
-// Waits until a count has been stable for `quietMs` before trusting it.
-// Prevents a still-populating React grid from appearing identical to a
-// freshly-landed upload.
-export async function waitForStableCount(
-  getCount: () => number,
-  quietMs = 800,
-  timeoutMs = UPLOAD_WAIT_TIMEOUT_MS
-): Promise<number> {
-  const start = Date.now();
-  let lastCount = getCount();
-  let lastChangeAt = Date.now();
-  while (Date.now() - start < timeoutMs && !aborted) {
-    await sleep(WAIT_INTERVAL_MS);
-    const count = getCount();
-    if (count !== lastCount) {
-      lastCount = count;
-      lastChangeAt = Date.now();
-    } else if (Date.now() - lastChangeAt >= quietMs) {
-      return lastCount;
-    }
-  }
-  return lastCount;
 }
 
 // Dispatches the full pointer + mouse event sequence required to trigger

@@ -3,6 +3,8 @@ import { StartEndFrameSelectors } from '../../lib/selectors/vibes';
 import {
   MAX_UPLOAD_ATTEMPTS,
   UPLOAD_RETRY_DELAY_MS,
+  MAX_CONFIRM_ATTEMPTS,
+  CONFIRM_CLOSE_TIMEOUT_MS,
   UPLOAD_WAIT_TIMEOUT_MS,
   ADD_FRAME_ICON_PATH,
   UPLOAD_ICON_PATH,
@@ -13,14 +15,7 @@ import {
 } from './constants';
 import { aborted } from './abortState';
 import { log } from './log';
-import {
-  sleep,
-  sleepAbortable,
-  simulateClick,
-  waitFor,
-  waitForStableCount,
-  dataURLtoFile,
-} from './domUtils';
+import { sleep, sleepAbortable, simulateClick, waitFor, dataURLtoFile } from './domUtils';
 
 function findAddToVideoButton(dialog: HTMLElement): HTMLButtonElement | null {
   return (
@@ -126,20 +121,44 @@ const UploadResults = {
 } as const;
 
 type UploadAttemptResult =
-  | { status: typeof UploadResults.Success; pickerDialogAfter: HTMLElement; finalCount: number }
+  | { status: typeof UploadResults.Success; pickerDialogAfter: HTMLElement }
   | { status: typeof UploadResults.Failed }
   | { status: typeof UploadResults.Aborted };
 
+// Confirm enables once the file preview lands — real readiness signal.
+// Success closes the dialog on its own; if a click doesn't (the confirm
+// button re-enables itself when that happens), just re-click it — the file
+// is already staged, no need to redo the whole attempt for that.
+async function confirmUpload(
+  uploadDialog: HTMLElement
+): Promise<
+  typeof UploadResults.Success | typeof UploadResults.Failed | typeof UploadResults.Aborted
+> {
+  for (let confirmAttempt = 1; confirmAttempt <= MAX_CONFIRM_ATTEMPTS; confirmAttempt++) {
+    const confirmBtn = await waitFor(() => {
+      const btn = findUploadConfirmButton(uploadDialog);
+      return btn && !btn.disabled ? btn : null;
+    });
+    if (aborted) return UploadResults.Aborted;
+    if (!confirmBtn) return UploadResults.Failed;
+    await simulateClick(confirmBtn);
+
+    const closed = await waitFor(
+      () => (document.body.contains(uploadDialog) ? null : true),
+      CONFIRM_CLOSE_TIMEOUT_MS
+    );
+    if (aborted) return UploadResults.Aborted;
+    if (closed) return UploadResults.Success;
+  }
+  return UploadResults.Failed;
+}
+
 async function attemptUpload(imageBase64: string, imageName: string): Promise<UploadAttemptResult> {
   // Re-resolved fresh each call (not passed in) — vibes.ai can remount the
-  // picker between retries, and baseline/finalCount need the same live node.
+  // picker between retries.
   const pickerDialog = await waitForOpenDialog();
   if (aborted) return { status: UploadResults.Aborted };
   if (!pickerDialog) return { status: UploadResults.Failed };
-
-  const baselineTotalImages = await waitForStableCount(
-    () => getUploadedImages(pickerDialog).length
-  );
 
   const uploadNavBtn = findUploadNavButton(pickerDialog);
   if (!uploadNavBtn) return { status: UploadResults.Failed };
@@ -154,38 +173,36 @@ async function attemptUpload(imageBase64: string, imageName: string): Promise<Up
     document.querySelector<HTMLInputElement>('input[type="file"]');
   if (!fileInput) return { status: UploadResults.Failed };
 
-  const file = dataURLtoFile(imageBase64, imageName);
+  // imageName (e.g. "scene_0002.jpeg") is deterministic per scene — a prior
+  // run could've already left a same-named file in this vibes.ai project, so
+  // upload under a unique name instead to unambiguously find *this* upload.
+  const uploadName = `${crypto.randomUUID()}-${imageName}`;
+  const file = dataURLtoFile(imageBase64, uploadName);
   const dt = new DataTransfer();
   dt.items.add(file);
   fileInput.files = dt.files;
+  fileInput.dispatchEvent(new Event('input', { bubbles: true }));
   fileInput.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // Confirm enables once the file preview lands — real readiness signal.
-  const confirmBtn = await waitFor(() => {
-    const btn = findUploadConfirmButton(uploadDialog);
-    return btn && !btn.disabled ? btn : null;
-  });
-  if (aborted) return { status: UploadResults.Aborted };
-  if (!confirmBtn) return { status: UploadResults.Failed };
-  await simulateClick(confirmBtn);
-
-  // Success closes this dialog on its own; a failure leaves it open.
-  const closed = await waitFor(
-    () => (document.body.contains(uploadDialog) ? null : true),
-    UPLOAD_WAIT_TIMEOUT_MS
-  );
-  if (aborted) return { status: UploadResults.Aborted };
-  if (!closed) return { status: UploadResults.Failed };
+  const confirmResult = await confirmUpload(uploadDialog);
+  if (confirmResult !== UploadResults.Success) return { status: confirmResult };
 
   // Back to exactly one open dialog (the picker), same as the first lookup.
   const pickerDialogAfter = await waitForOpenDialog();
   if (aborted) return { status: UploadResults.Aborted };
   if (!pickerDialogAfter) return { status: UploadResults.Failed };
 
-  const finalCount = await waitForStableCount(() => getUploadedImages(pickerDialogAfter).length);
+  // Look for the specific file we uploaded, by its alt (= filename) — the
+  // grid can be virtualized/lazy, so a total image count fluctuates on its
+  // own and isn't a reliable "did it land" signal.
+  const escapedName = CSS.escape(uploadName);
+  const uploadedImage = await waitFor(
+    () => pickerDialogAfter.querySelector<HTMLImageElement>(`img[alt="${escapedName}"]`),
+    UPLOAD_WAIT_TIMEOUT_MS
+  );
   if (aborted) return { status: UploadResults.Aborted };
-  if (finalCount > baselineTotalImages) {
-    return { status: UploadResults.Success, pickerDialogAfter, finalCount };
+  if (uploadedImage) {
+    return { status: UploadResults.Success, pickerDialogAfter };
   }
   return { status: UploadResults.Failed };
 }
@@ -225,6 +242,7 @@ async function uploadWithRetries(
       step: 'Subiendo start frame',
       kind: LogKinds.Info,
       attempt: { current: attempt, max: MAX_UPLOAD_ATTEMPTS },
+      cooldownMs: UPLOAD_WAIT_TIMEOUT_MS,
     });
     uploadResult = await attemptUpload(imageBase64, imageName);
 

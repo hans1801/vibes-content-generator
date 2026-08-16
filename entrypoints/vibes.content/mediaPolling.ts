@@ -1,14 +1,15 @@
-import { Actions } from '../../lib/types';
+import { Actions, LogKinds, BatchModes, type BatchMode } from '../../lib/types';
 import { GallerySelectors } from '../../lib/selectors/vibes';
 import {
   MEDIA_POLL_INTERVAL_MS,
   BATCH_ID_CAPTURE_TIMEOUT_MS,
-  BATCH_SETTLE_TIMEOUT_MS,
   MAX_GENERATION_ATTEMPTS,
   GENERATION_RETRY_DELAY_MS,
+  READY_VIDEO_URL_PATTERN,
 } from './constants';
 import { aborted } from './abortState';
 import { sleep, sleepAbortable } from './domUtils';
+import { log } from './log';
 
 // ── Gallery reading ────────────────────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ type SlotState =
 // that's the "ready" signal instead of img.complete timing. Anything that
 // isn't ready and isn't an explicit "Couldn't generate" card is still
 // mid-generation.
-function getSlotState(mediaId: string): SlotState {
+function getSlotState(mediaId: string, mode: BatchMode): SlotState {
   const escapedId = CSS.escape(mediaId);
   const repeats = document.querySelectorAll(`[data-analytics-media-id="${escapedId}"]`).length;
   const card = document.querySelector<HTMLElement>(
@@ -58,9 +59,27 @@ function getSlotState(mediaId: string): SlotState {
   );
 
   if (repeats > 1 && card) {
-    const img = card.querySelector<HTMLImageElement>('img[data-nimg="fill"]');
-    const video = card.querySelector<HTMLVideoElement>('video[src]');
-    const url = img && img.complete && img.naturalWidth > 0 ? img.src : video?.src;
+    // Which element actually holds the real content depends on the mode —
+    // a video card's thumbnail <img> can be a generic loading placeholder
+    // (same src across every card in the batch) that's "complete" long
+    // before the real <video> mounts, so it must never stand in for one.
+    let url: string | false = false;
+    if (mode === BatchModes.Image) {
+      const img = card.querySelector<HTMLImageElement>('img[data-nimg="fill"]');
+      url = !!img && img.complete && img.naturalWidth > 0 && img.src;
+    } else {
+      const video = card.querySelector<HTMLVideoElement>('video[src]');
+      // readyState confirms the browser actually has data for this src, not
+      // just that the attribute was assigned — the <video> tag can mount
+      // with src set slightly before the file is truly fetchable. The URL
+      // pattern is a second check: a finished video's src is always a
+      // final CDN URL, never a placeholder.
+      const videoReady =
+        !!video &&
+        video.readyState >= HTMLMediaElement.HAVE_METADATA &&
+        READY_VIDEO_URL_PATTERN.test(video.src);
+      url = videoReady && video.src;
+    }
     if (url) return { status: SlotStatuses.Ready, url };
   }
 
@@ -87,7 +106,11 @@ type BatchResult =
   | { status: typeof BatchResults.NoSuccess }
   | { status: typeof BatchResults.Aborted };
 
-async function waitForBatch(knownMediaIds: Set<string>): Promise<BatchResult> {
+async function waitForBatch(
+  mode: BatchMode,
+  knownMediaIds: Set<string>,
+  settleTimeoutMs: number
+): Promise<BatchResult> {
   // Phase 1: capture this generation's batch id — the first fresh mediaId to
   // appear (any state) tells us which batch to track, since generation runs
   // strictly one batch at a time, never in parallel.
@@ -110,12 +133,12 @@ async function waitForBatch(knownMediaIds: Set<string>): Promise<BatchResult> {
   // has settled (ready or failed — none still pending) or the settle window
   // runs out, whichever comes first.
   const slotIds = [0, 1, 2, 3].map((n) => `${batchId}-content-${n}`);
-  const deadline = Date.now() + BATCH_SETTLE_TIMEOUT_MS;
+  const deadline = Date.now() + settleTimeoutMs;
 
   while (true) {
     if (aborted) return { status: BatchResults.Aborted };
 
-    const states = slotIds.map(getSlotState);
+    const states = slotIds.map((id) => getSlotState(id, mode));
     const stillPending = states.some((s) => s.status === SlotStatuses.Pending);
     const readyUrls = states.flatMap((s) => (s.status === SlotStatuses.Ready ? [s.url] : []));
 
@@ -152,8 +175,10 @@ export async function reportSceneFailed(sceneNumber: number, reason: string, ret
 // the rest are simply skipped, not treated as a reason to retry.
 export async function generateWithRetries(
   sceneNumber: number,
+  mode: BatchMode,
   generateAttempt: () => Promise<boolean>,
-  retryAfterMs: number
+  retryAfterMs: number,
+  settleTimeoutMs: number
 ) {
   let seenMediaIds = getAllMediaIds();
 
@@ -161,6 +186,13 @@ export async function generateWithRetries(
     if (aborted) return;
 
     if (attempt > 1) {
+      log({
+        sceneNumber,
+        step: 'Reintentando generación',
+        kind: LogKinds.Retry,
+        attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
+        cooldownMs: GENERATION_RETRY_DELAY_MS,
+      });
       await sleepAbortable(GENERATION_RETRY_DELAY_MS);
       if (aborted) return;
     }
@@ -171,13 +203,26 @@ export async function generateWithRetries(
       return;
     }
 
-    const result = await waitForBatch(seenMediaIds);
+    log({
+      sceneNumber,
+      step: 'Esperando generación',
+      kind: LogKinds.Info,
+      attempt: { current: attempt, max: MAX_GENERATION_ATTEMPTS },
+      cooldownMs: BATCH_ID_CAPTURE_TIMEOUT_MS + settleTimeoutMs,
+    });
+
+    const result = await waitForBatch(mode, seenMediaIds, settleTimeoutMs);
 
     switch (result.status) {
       case BatchResults.Aborted:
         return;
 
       case BatchResults.Success:
+        log({
+          sceneNumber,
+          step: `${result.urls.length} archivo(s) listo(s), descargando`,
+          kind: LogKinds.Success,
+        });
         await browser.runtime.sendMessage({
           action: Actions.DownloadMediaDirect,
           urls: result.urls,
@@ -188,6 +233,11 @@ export async function generateWithRetries(
       case BatchResults.NoSuccess:
         seenMediaIds = getAllMediaIds();
         if (attempt >= MAX_GENERATION_ATTEMPTS) {
+          log({
+            sceneNumber,
+            step: 'Generación falló tras todos los intentos',
+            kind: LogKinds.Error,
+          });
           await reportSceneFailed(
             sceneNumber,
             'Generación falló tras todos los intentos.',

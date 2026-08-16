@@ -8,14 +8,18 @@ export const MEDIA_POLL_INTERVAL_MS = 2000;
 export const BATCH_ID_CAPTURE_TIMEOUT_MS = 15000;
 // Once a batch's id is known, how long to wait for its up to 4 slots to
 // settle (each becomes 'ready' or 'failed') before deciding with whatever
-// succeeded so far.
-export const BATCH_SETTLE_TIMEOUT_MS = 120000;
+// succeeded so far. Video takes longer than image, so it gets more room.
+export const IMAGE_BATCH_SETTLE_TIMEOUT_MS = 45000;
+export const VIDEO_BATCH_SETTLE_TIMEOUT_MS = 75000;
 export const MAX_UPLOAD_ATTEMPTS = 5;
 export const UPLOAD_RETRY_DELAY_MS = 12000;
+// If clicking confirm doesn't close the upload dialog, the file itself is
+// already staged — re-click confirm instead of re-selecting the file and
+// burning a whole extra upload attempt.
+export const MAX_CONFIRM_ATTEMPTS = 3;
+export const CONFIRM_CLOSE_TIMEOUT_MS = 20000;
 export const MAX_GENERATION_ATTEMPTS = 5;
-// Video scenes hit vibes.ai with two API calls (upload + generate) per scene,
-// which triggers rate-limiting faster — give them a longer cooldown.
-export const GENERATION_RETRY_DELAY_MS = 25000;
+export const GENERATION_RETRY_DELAY_MS = 10000;
 
 // How long background.ts should wait before moving to the next scene after
 // this one fails outright (not a within-generation retry — a full give-up).
@@ -40,3 +44,9 @@ export const ADD_TO_VIDEO_BUTTON_CLASS = 'bg_var(--fill-blue)';
 // manages an "end frame", so it's the only such small remove button around.
 export const CLOSE_ICON_PATH = 'M22.88 24.12a.877.877 0 0 0 1.239-1.239';
 export const REMOVE_FRAME_BUTTON_SIZE_CLASS = 'h_16px w_16px';
+// A finished video's src is always a final fbcdn.net CDN URL ending in
+// .mp4, never a placeholder — the subdomain varies (video-*, scontent-*,
+// ...), so only the host suffix + extension are reliable. Matching this is
+// extra confirmation the file is actually there, on top of the <video>'s
+// own readyState.
+export const READY_VIDEO_URL_PATTERN = /^https:\/\/[\w.-]+\.fbcdn\.net\/.*\.mp4/;

@@ -1,6 +1,11 @@
 import { BatchModes, LogKinds } from '../../lib/types';
 import { GenerateButtonSelectors } from '../../lib/selectors/vibes';
-import { IMAGE_SCENE_RETRY_DELAY_MS, VIDEO_SCENE_RETRY_DELAY_MS } from './constants';
+import {
+  IMAGE_SCENE_RETRY_DELAY_MS,
+  VIDEO_SCENE_RETRY_DELAY_MS,
+  IMAGE_BATCH_SETTLE_TIMEOUT_MS,
+  VIDEO_BATCH_SETTLE_TIMEOUT_MS,
+} from './constants';
 import { log } from './log';
 import { ensureMode, createGenerateAttempt } from './modeSwitch';
 import { attachStartFrame, removeStartFrame } from './startFrame';
@@ -23,7 +28,13 @@ export async function handleImageMode(prompt: string, sceneNumber: number) {
 
   const generateAttempt = createGenerateAttempt(prompt, GenerateButtonSelectors.Image);
 
-  generateWithRetries(sceneNumber, generateAttempt, IMAGE_SCENE_RETRY_DELAY_MS);
+  generateWithRetries(
+    sceneNumber,
+    BatchModes.Image,
+    generateAttempt,
+    IMAGE_SCENE_RETRY_DELAY_MS,
+    IMAGE_BATCH_SETTLE_TIMEOUT_MS
+  );
 }
 
 export async function handleVideoMode(
@@ -65,7 +76,13 @@ export async function handleVideoMode(
 
   const generateAttempt = createGenerateAttempt(prompt, GenerateButtonSelectors.Video);
 
-  await generateWithRetries(sceneNumber, generateAttempt, VIDEO_SCENE_RETRY_DELAY_MS);
+  await generateWithRetries(
+    sceneNumber,
+    BatchModes.Video,
+    generateAttempt,
+    VIDEO_SCENE_RETRY_DELAY_MS,
+    VIDEO_BATCH_SETTLE_TIMEOUT_MS
+  );
 
   await removeStartFrame();
 }
