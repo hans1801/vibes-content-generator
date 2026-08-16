@@ -1,8 +1,8 @@
-# Política de Privacidad de Content AI Generator
+# Política de Privacidad de AI Content Generator
 
 Última actualización: 11 de agosto de 2026
 
-Esta Política de Privacidad describe cómo **Content AI Generator** ("la Extensión") trata la información de los usuarios.
+Esta Política de Privacidad describe cómo **AI Content Generator** ("la Extensión") trata la información de los usuarios.
 
 ## 1. Recopilación de Información
 La Extensión no recopila, almacena, comparte ni transmite ninguna información de identificación personal, historial de navegación ni datos sensibles de los usuarios a servidores externos.

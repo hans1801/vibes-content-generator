@@ -141,7 +141,7 @@ export default function App() {
 
   return (
     <div id="app">
-      <h1>Content AI Generator</h1>
+      <h1>AI Content Generator</h1>
 
       <div className="mode-tabs">
         {MODE_TABS.map((tab) => (
