@@ -31,6 +31,11 @@ export default function App() {
   const logSceneRef = useRef<number | null>(null);
   const grantedHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
 
+  function clearLogHistory() {
+    logSceneRef.current = null;
+    setLogHistory([]);
+  }
+
   async function processPendingWrite(pw: PendingWrite) {
     const handle = grantedHandleRef.current;
     if (!handle) return;
@@ -160,10 +165,8 @@ export default function App() {
         <BatchMode
           batchStatus={batchStatus}
           grantedHandleRef={grantedHandleRef}
-          onBatchStart={() => {
-            logSceneRef.current = null;
-            setLogHistory([]);
-          }}
+          onBatchStart={clearLogHistory}
+          onBatchStop={clearLogHistory}
         />
       )}
 

@@ -25,9 +25,15 @@ interface Props {
   batchStatus: BatchStatus | null;
   grantedHandleRef: { current: FileSystemDirectoryHandle | null };
   onBatchStart: () => void;
+  onBatchStop: () => void;
 }
 
-export default function BatchMode({ batchStatus, grantedHandleRef, onBatchStart }: Props) {
+export default function BatchMode({
+  batchStatus,
+  grantedHandleRef,
+  onBatchStart,
+  onBatchStop,
+}: Props) {
   const [projectHandle, setProjectHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [projectName, setProjectName] = useState('');
   const [batchScenes, setBatchScenes] = useState<SceneData[]>([]);
@@ -130,7 +136,10 @@ export default function BatchMode({ batchStatus, grantedHandleRef, onBatchStart 
   const notifyBackground = (message: object) =>
     browser.runtime.sendMessage(message).catch(() => {});
 
-  const stopBatch = () => notifyBackground({ action: Actions.StopBatch });
+  const stopBatch = () => {
+    onBatchStop();
+    notifyBackground({ action: Actions.StopBatch });
+  };
 
   if (isBatchActive) {
     return <ActiveBatchView batchStatus={batchStatus} doneCount={doneCount} onStop={stopBatch} />;

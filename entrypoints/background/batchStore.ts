@@ -85,6 +85,8 @@ class BatchStore {
   public async stop() {
     if (!this.batch) return;
     this.batch.active = false;
+    this.batch.logStack = [];
+    this.batch.lastLogSceneNumber = null;
     await this.persist();
   }
 
