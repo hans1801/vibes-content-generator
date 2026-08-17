@@ -3,6 +3,21 @@ import { aborted } from './abortState';
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export function waitFor<T>(check: () => T | null | undefined, timeoutMs = 8000): Promise<T | null> {
+  const existing = check();
+  if (existing) return Promise.resolve(existing);
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const interval = setInterval(() => {
+      const result = check();
+      if (result || aborted || Date.now() - start >= timeoutMs) {
+        clearInterval(interval);
+        resolve(result ?? null);
+      }
+    }, 200);
+  });
+}
+
 export async function sleepAbortable(ms: number) {
   const step = 500;
   let waited = 0;
