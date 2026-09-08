@@ -8,7 +8,7 @@ import {
   MEDIA_POLL_INTERVAL_MS,
 } from './constants';
 import { aborted } from './abortState';
-import { sleep } from './domUtils';
+import { sleep, nativeHover } from './domUtils';
 
 // SendPrompt's sendResponse already fired (instantly, before any of this
 // ran) — every outcome from here on, success or failure, travels as its own
@@ -24,69 +24,76 @@ export async function reportSceneFailed(sceneNumber: number, reason: string, ret
 }
 
 // ── Tile reading ───────────────────────────────────────────────────────────────
+//
+// No stable id for either media type under Flow's Angular rewrite.
+// - Image: <img data-media-id> — attribute only appears once done.
+// - Video: no id ever, and no <video> in the DOM until hovered (unhovered
+//   it's just a poster <img class="thumbnail">). The gallery is also a CDK
+//   virtual-scroll list that recycles offscreen tiles, so diffing by id is
+//   unsafe (caused real duplicate downloads) — only position 0 ("Recientes"
+//   sort) is reliably mounted. So: watch position 0's thumbnail src for a
+//   change (no hover needed), then hover once, only after a change is
+//   detected, to mount the real <video> and read its actual src.
 
-// Every result (image or video) is wrapped in an element with
-// data-tile-id="fe_id_<uuid>" — Google Flow renders this wrapper twice
-// (outer + inner container, same id), so querySelector (first match) is
-// enough; no need to dedupe manually.
-function getAllTileIds(): Set<string> {
-  const ids = new Set<string>();
-  document.querySelectorAll<HTMLElement>('[data-tile-id]').forEach((wrapper) => {
-    const id = wrapper.getAttribute('data-tile-id');
-    if (id) ids.add(id);
+function getReadyImages(): Map<string, string> {
+  const images = new Map<string, string>();
+  document.querySelectorAll<HTMLImageElement>('img[data-media-id]').forEach((img) => {
+    const id = img.getAttribute('data-media-id');
+    if (id && img.src) images.set(id, img.src);
   });
-  return ids;
+  return images;
 }
 
-export function getMediaTileIds(): Set<string> {
-  return getAllTileIds();
+function getReadyImageIds(): Set<string> {
+  return new Set(getReadyImages().keys());
 }
 
-const TileStatuses = {
-  Ready: 'ready',
-  Failed: 'failed',
-  Pending: 'pending',
-} as const;
+// A failed generation renders <flow-error-tile> instead of an <img> — no id
+// to diff by, but the count is enough: a new one appearing counts as this
+// batch "settling" just like a new successful image would.
+function getErrorTileCount(): number {
+  return document.querySelectorAll('flow-error-tile').length;
+}
 
-type TileState =
-  | { status: typeof TileStatuses.Ready; isVideo: boolean; url: string }
-  | { status: typeof TileStatuses.Failed }
-  | { status: typeof TileStatuses.Pending };
+// A still-generating image is wrapped in <flow-pending-tile> (confirmed
+// against real DOM) — its presence is the direct "not done yet" signal, no
+// timing guesses needed. Scenes run one at a time, so any pending tile seen
+// while waiting belongs to this generation.
+function getPendingTileCount(): number {
+  return document.querySelectorAll('flow-pending-tile').length;
+}
 
-// A failed generation renders a "warning" icon (Material Symbols ligature,
-// language-independent) with a non-empty reason in .sc-101009f9-2. The same
-// warning card also shows up empty for an unrelated "removed/reuse" state
-// (action icon "undo" instead of "refresh") — only the one with actual
-// reason text is a real failure. Everything else that isn't a real, loaded
-// media element is still mid-generation.
-function getTileState(id: string): TileState {
-  const wrapper = document.querySelector<HTMLElement>(`[data-tile-id="${CSS.escape(id)}"]`);
-  if (!wrapper) return { status: TileStatuses.Pending };
+function getTopGalleryTile(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('flow-grid-tile-container');
+}
 
-  const hasWarningIcon = Array.from(wrapper.querySelectorAll('i')).some(
-    (i) => i.textContent?.trim() === 'warning'
-  );
-  const errorReason = wrapper.querySelector('.sc-101009f9-2')?.textContent?.trim();
-  if (hasWarningIcon && errorReason) return { status: TileStatuses.Failed };
+// Ready signal — the thumbnail poster src, always present, no hover needed.
+function getTopThumbnailSrc(): string | null {
+  const tile = getTopGalleryTile();
+  if (!tile || !tile.querySelector('flow-video-tile')) return null;
+  return tile.querySelector<HTMLImageElement>('img.thumbnail')?.src ?? null;
+}
 
-  const media = wrapper.querySelector<HTMLImageElement | HTMLVideoElement>('img, video');
-  if (!media) return { status: TileStatuses.Pending };
+// Download URL — the real <video> src, only exists once hovered. Called
+// once, after a thumbnail change is already seen.
+async function getTopVideoUrl(): Promise<string | null> {
+  const tile = getTopGalleryTile();
+  if (!tile) return null;
+  await nativeHover(tile);
+  return tile.querySelector<HTMLVideoElement>('video')?.src ?? null;
+}
 
-  if (media.tagName === 'VIDEO') {
-    const video = media as HTMLVideoElement;
-    // Unlike vibes.ai, Google Flow's <video> doesn't preload metadata on its
-    // own — readyState can stay 0 indefinitely even once the video is done
-    // server-side, so it's not a usable readiness signal here. A real src
-    // is the only thing to go by.
-    const src = video.currentSrc || video.src;
-    return src
-      ? { status: TileStatuses.Ready, isVideo: true, url: src }
-      : { status: TileStatuses.Pending };
+export interface MediaSnapshot {
+  imageIds: Set<string>;
+  errorCount: number;
+  topThumbnailSrc: string | null;
+}
+
+export async function getMediaSnapshot(mode: BatchMode): Promise<MediaSnapshot> {
+  if (mode === BatchModes.Video) {
+    return { imageIds: new Set(), errorCount: 0, topThumbnailSrc: getTopThumbnailSrc() };
   }
-
-  const img = media as HTMLImageElement;
-  if (!img.complete || img.naturalWidth === 0 || !img.src) return { status: TileStatuses.Pending };
-  return { status: TileStatuses.Ready, isVideo: false, url: img.src };
+  return { imageIds: getReadyImageIds(), errorCount: getErrorTileCount(), topThumbnailSrc: null };
 }
 
 // Converts a blob: URL to a data URL so the extension popup can fetch it
@@ -115,60 +122,65 @@ export type MediaPollResult =
   | { status: typeof MediaPollStatuses.NoSuccess }
   | { status: typeof MediaPollStatuses.Aborted };
 
-// Diffs the current tile ids against beforeIds to find this generation's
-// results, and waits for every one of them to settle (ready or failed —
-// none still pending). New ids can keep appearing over time (Google Flow
-// sometimes delivers variants in separate batches), so once nothing's
-// pending, the id count must also hold steady for MEDIA_STABILIZE_MS before
-// calling it done — otherwise a variant whose wrapper hasn't even mounted
-// yet gets abandoned.
-export async function waitForNewMedia(
-  beforeIds: Set<string>,
-  mode: BatchMode = BatchModes.Image
-): Promise<MediaPollResult> {
-  const isVideo = mode === BatchModes.Video;
-  const maxAttempts = isVideo ? VIDEO_MEDIA_POLL_MAX_ATTEMPTS : IMAGE_MEDIA_POLL_MAX_ATTEMPTS;
+// Diffs ready ids against the pre-submit snapshot; new error tiles count as
+// settled too. Done once no <flow-pending-tile> is left generating — a
+// direct signal, not a timing guess, so a slow variant is never cut short
+// while a faster one already resolved. MEDIA_STABILIZE_MS only debounces a
+// momentary gap between tiles arriving in separate delivery batches.
+async function waitForNewImages(before: MediaSnapshot): Promise<MediaPollResult> {
+  const newImages = () => [...getReadyImages()].filter(([id]) => !before.imageIds.has(id));
+  const toResult = (images: [string, string][]): MediaPollResult =>
+    images.length > 0
+      ? { status: MediaPollStatuses.Success, urls: images.map(([, url]) => url) }
+      : { status: MediaPollStatuses.NoSuccess };
 
-  let lastCount = 0;
-  let stableSince: number | null = null;
+  let zeroPendingSince: number | null = null;
 
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+  for (let attempt = 0; attempt < IMAGE_MEDIA_POLL_MAX_ATTEMPTS; attempt++) {
     if (aborted) return { status: MediaPollStatuses.Aborted };
 
-    const newIds = [...getAllTileIds()].filter((id) => !beforeIds.has(id));
-    const states = newIds.map((id) => getTileState(id));
-    const stillPending = states.some((s) => s.status === TileStatuses.Pending);
-    const readyUrls = states.flatMap((s) =>
-      s.status === TileStatuses.Ready && s.isVideo === isVideo ? [s.url] : []
-    );
+    const images = newImages();
+    const errors = Math.max(0, getErrorTileCount() - before.errorCount);
+    const settled = images.length + errors;
 
-    if (newIds.length !== lastCount) {
-      // El conteo de ids nuevos cambió (llegó otro wrapper): reinicia la
-      // ventana de estabilización.
-      lastCount = newIds.length;
-      stableSince = Date.now();
-    }
+    zeroPendingSince =
+      getPendingTileCount() === 0 ? (zeroPendingSince ?? Date.now()) : null;
 
-    const reachedMax = newIds.length >= MAX_MEDIA_PER_BATCH;
-    const isStable = stableSince !== null && Date.now() - stableSince >= MEDIA_STABILIZE_MS;
+    const reachedMax = settled >= MAX_MEDIA_PER_BATCH;
+    const confirmedDone =
+      zeroPendingSince !== null && Date.now() - zeroPendingSince >= MEDIA_STABILIZE_MS;
 
-    if (!stillPending && (reachedMax || isStable)) {
-      return readyUrls.length > 0
-        ? { status: MediaPollStatuses.Success, urls: readyUrls }
-        : { status: MediaPollStatuses.NoSuccess };
+    if (settled > 0 && (reachedMax || confirmedDone)) return toResult(images);
+
+    await sleep(MEDIA_POLL_INTERVAL_MS);
+  }
+
+  return toResult(newImages());
+}
+
+// Watches position 0's thumbnail for a change, then hovers once to pull
+// the real downloadable src.
+async function waitForTopVideoChange(beforeSrc: string | null): Promise<MediaPollResult> {
+  for (let attempt = 0; attempt < VIDEO_MEDIA_POLL_MAX_ATTEMPTS; attempt++) {
+    if (aborted) return { status: MediaPollStatuses.Aborted };
+
+    const thumb = getTopThumbnailSrc();
+    if (thumb && thumb !== beforeSrc) {
+      const url = await getTopVideoUrl();
+      if (url) return { status: MediaPollStatuses.Success, urls: [url] };
     }
 
     await sleep(MEDIA_POLL_INTERVAL_MS);
   }
 
-  // Timed out — whatever's ready counts as a partial success, same as
-  // vibes.ai: at least 1 ready slot is enough, the rest are simply skipped.
-  const finalUrls = [...getAllTileIds()]
-    .filter((id) => !beforeIds.has(id))
-    .map((id) => getTileState(id))
-    .flatMap((s) => (s.status === TileStatuses.Ready && s.isVideo === isVideo ? [s.url] : []));
+  return { status: MediaPollStatuses.NoSuccess };
+}
 
-  return finalUrls.length > 0
-    ? { status: MediaPollStatuses.Success, urls: finalUrls }
-    : { status: MediaPollStatuses.NoSuccess };
+export async function waitForNewMedia(
+  before: MediaSnapshot,
+  mode: BatchMode = BatchModes.Image
+): Promise<MediaPollResult> {
+  return mode === BatchModes.Video
+    ? waitForTopVideoChange(before.topThumbnailSrc)
+    : waitForNewImages(before);
 }

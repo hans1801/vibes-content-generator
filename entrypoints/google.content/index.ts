@@ -4,7 +4,12 @@ import { setAborted } from './abortState';
 import { handleImageMode, handleVideoMode } from './modeHandlers';
 
 export default defineContentScript({
-  matches: ['*://labs.google/*'],
+  matches: [
+    '*://labs.google/*',
+    '*://*.labs.google/*',
+    '*://flow.google.com/*',
+    '*://*.flow.google.com/*',
+  ],
   main() {
     browser.runtime.onMessage.addListener((message: ExtensionMessage) => {
       // Only 2 actions matter to this content script — everything else

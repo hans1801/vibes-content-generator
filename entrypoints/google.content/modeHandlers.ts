@@ -7,14 +7,15 @@ import {
   MAX_GENERATION_ATTEMPTS,
   IMAGE_SCENE_RETRY_DELAY_MS,
   VIDEO_SCENE_RETRY_DELAY_MS,
+  COMPOSER_WAIT_TIMEOUT_MS,
 } from './constants';
 import { aborted } from './abortState';
 import { log } from './log';
-import { sleep } from './domUtils';
+import { sleep, waitFor } from './domUtils';
 import { getComposer, fillSlateComposer, submitPrompt } from './composer';
 import { attachStartFrame } from './startFrame';
 import {
-  getMediaTileIds,
+  getMediaSnapshot,
   blobUrlToDataUrl,
   waitForNewMedia,
   reportSceneFailed,
@@ -31,7 +32,7 @@ async function fillComposerAndSubmit(
   retryDelayMs: number,
   preSubmitDelayMs = 0
 ): Promise<HTMLElement | null> {
-  const composer = getComposer();
+  const composer = await waitFor(() => getComposer(), COMPOSER_WAIT_TIMEOUT_MS);
   if (!composer) {
     await reportSceneFailed(sceneNumber, 'Editor de Google Flow no encontrado.', retryDelayMs);
     return null;
@@ -82,7 +83,7 @@ async function waitForGenerationAndDownload(
   // not just the first one.
   ensureReadyToSubmit?: () => Promise<boolean>
 ) {
-  let beforeIds = getMediaTileIds();
+  let before = await getMediaSnapshot(mode);
 
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt++) {
     if (aborted) return;
@@ -109,7 +110,7 @@ async function waitForGenerationAndDownload(
       cooldownMs: waitCooldownMs,
     });
 
-    const result = await waitForNewMedia(beforeIds, mode);
+    const result = await waitForNewMedia(before, mode);
 
     switch (result.status) {
       case MediaPollStatuses.Aborted:
@@ -149,7 +150,7 @@ async function waitForGenerationAndDownload(
         return;
 
       case MediaPollStatuses.NoSuccess:
-        beforeIds = getMediaTileIds();
+        before = await getMediaSnapshot(mode);
         if (attempt >= MAX_GENERATION_ATTEMPTS) {
           log({
             sceneNumber,

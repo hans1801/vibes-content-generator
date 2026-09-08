@@ -23,7 +23,7 @@ export const VIDEO_PROMPT_PREFIX = 'Animate this image.';
 // a third site (or renaming one) doesn't mean hunting down every mention.
 export const SUPPORTED_SITES = [
   { name: 'Vibes AI', url: 'https://vibes.ai/' },
-  { name: 'Google Flow', url: 'https://labs.google/fx/es/tools/flow' },
+  { name: 'Google Flow', url: 'https://flow.google.com/' },
 ] as const;
 
 export const Alarms = {

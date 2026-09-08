@@ -1,6 +1,11 @@
+// After heavy DOM churn (e.g. the video start-frame attach flow: drag&drop +
+// several clicks + confirm), Angular can take a while to settle the
+// composer back into the DOM — give it real room, not just a token retry.
+export const COMPOSER_WAIT_TIMEOUT_MS = 15000;
 export const MEDIA_POLL_INTERVAL_MS = 1500;
-// Google Flow renders images faster than Vibes — a shorter stabilization
-// window is sufficient.
+// Debounce for the "no tile is still generating" signal (flow-pending-tile
+// count hits 0) — not a wait-for-more-results timer. Just covers a momentary
+// gap between tiles arriving in separate delivery batches.
 export const MEDIA_STABILIZE_MS = 3000;
 // ~2 minutes maximum wait for generation.
 export const IMAGE_MEDIA_POLL_MAX_ATTEMPTS = 80;

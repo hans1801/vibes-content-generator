@@ -10,6 +10,7 @@ export const Actions = {
   Log: 'log',
   NativeClick: 'native_click',
   NativeType: 'native_type',
+  NativeHover: 'native_hover',
 } as const;
 
 export const BatchModes = {
@@ -179,6 +180,12 @@ export interface NativeTypeMessage {
   text: string;
 }
 
+export interface NativeHoverMessage {
+  action: typeof Actions.NativeHover;
+  x: number;
+  y: number;
+}
+
 export type ExtensionMessage =
   | SendPromptMessage
   | StartBatchMessage
@@ -190,4 +197,5 @@ export type ExtensionMessage =
   | BatchStatusMessage
   | LogMessage
   | NativeClickMessage
-  | NativeTypeMessage;
+  | NativeTypeMessage
+  | NativeHoverMessage;

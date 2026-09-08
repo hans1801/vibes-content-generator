@@ -10,45 +10,17 @@ import {
   CONFIRM_CLOSE_TIMEOUT_MS,
 } from './constants';
 
-// The "Inicial"/"Final" frame triggers are the only elements with this
-// pattern on the page, always in that DOM order — Inicial is the first one.
-// Once a start frame is attached, this trigger is replaced by a thumbnail
-// button, so its absence alone isn't proof of anything — see
-// isStartFrameAttached below for that.
+// "Inicial" is always the first .frame-trigger ("Final" is the second).
 function findInitialFrameTrigger(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('div[aria-haspopup="dialog"][aria-controls]');
+  return document.querySelector<HTMLElement>('flow-ingredient-bar .frame-trigger button.empty-chip');
 }
 
-// After attaching, "Inicial" becomes a thumbnail button with this marker
-// instead of a dialog trigger.
+// Attached: the trigger's <button class="empty-chip"> is replaced by a
+// <flow-image-ingredient-chip>. Scoped to the first .frame-trigger — "Final"
+// gets its own chip once that's attached too.
 function isStartFrameAttached(): boolean {
-  return !!document.querySelector('button[data-card-open]');
-}
-
-function waitForOpenPopover(timeoutMs = UPLOAD_WAIT_TIMEOUT_MS): Promise<HTMLElement | null> {
-  return waitFor(
-    () => document.querySelector<HTMLElement>('[role="dialog"][data-state="open"]'),
-    timeoutMs
-  );
-}
-
-function findFileInput(): HTMLInputElement | null {
-  return document.querySelector<HTMLInputElement>('input[type="file"][accept="image/*"]');
-}
-
-// Every other button in the popover (tabs, sort, upload) carries an icon —
-// the confirm ("Add to prompt") button doesn't.
-function findConfirmButton(popover: HTMLElement): HTMLButtonElement | null {
-  return (
-    Array.from(popover.querySelectorAll<HTMLButtonElement>('button')).find(
-      (btn) => !btn.querySelector('i')
-    ) ?? null
-  );
-}
-
-function findUploadedOption(popover: HTMLElement, uploadName: string): HTMLElement | null {
-  const img = popover.querySelector<HTMLImageElement>(`img[alt="${CSS.escape(uploadName)}"]`);
-  return img?.closest<HTMLElement>('[role="option"]') ?? null;
+  const first = document.querySelector<HTMLElement>('flow-ingredient-bar .frame-trigger');
+  return !!first?.querySelector('flow-image-ingredient-chip');
 }
 
 const UploadResults = {
@@ -59,60 +31,91 @@ const UploadResults = {
 
 type UploadResult = (typeof UploadResults)[keyof typeof UploadResults];
 
-// Confirm closes the popover on success; if a click doesn't (rare), just
-// re-click it — the file is already staged and selected.
-async function confirmSelection(popover: HTMLElement): Promise<UploadResult> {
+function findConfirmButton(): HTMLButtonElement | null {
+  return document.querySelector<HTMLButtonElement>('button.detail-add-to-prompt-btn');
+}
+
+// <img alt> is a fixed generic string, not the filename — match by
+// .footer-title's text instead, then read that tile's own <img>.
+function findUploadedTile(uploadName: string): HTMLElement | null {
+  const footer = Array.from(document.querySelectorAll<HTMLElement>('.footer-title')).find(
+    (el) => el.textContent?.trim() === uploadName
+  );
+  return footer?.closest<HTMLElement>('flow-tile-container') ?? null;
+}
+
+// Same readiness signal as getReadyImages() in mediaPolling.ts: data-media-id
+// only shows up once Flow is done processing the upload.
+function findUploadedMedia(uploadName: string): HTMLImageElement | null {
+  const tile = findUploadedTile(uploadName);
+  return tile?.querySelector<HTMLImageElement>('img[data-media-id]') ?? null;
+}
+
+async function confirmSelection(): Promise<UploadResult> {
   for (let attempt = 1; attempt <= MAX_CONFIRM_ATTEMPTS; attempt++) {
-    const confirmBtn = await waitFor(() => findConfirmButton(popover));
+    const confirmBtn = await waitFor(() => findConfirmButton());
     if (aborted) return UploadResults.Aborted;
     if (!confirmBtn) return UploadResults.Failed;
     await nativeClick(confirmBtn);
 
-    const closed = await waitFor(
-      () => (document.body.contains(popover) ? null : true),
+    const attached = await waitFor(
+      () => (isStartFrameAttached() ? true : null),
       CONFIRM_CLOSE_TIMEOUT_MS
     );
     if (aborted) return UploadResults.Aborted;
-    if (closed) return UploadResults.Success;
+    if (attached) {
+      // Picker's overlay backdrop can linger a beat after attach registers,
+      // still eating clicks/focus — wait for it to clear before returning.
+      await waitFor(() => (document.querySelector('.cdk-overlay-backdrop') ? null : true), 5000);
+      return UploadResults.Success;
+    }
   }
   return UploadResults.Failed;
 }
 
+// Drag&drop uploads the file into the library but doesn't attach it as the
+// start frame — that needs the trigger's own picker: open it, select the
+// upload by name (skipping its own "upload file" step, already done), then
+// confirm.
 async function attemptUpload(imageBase64: string, imageName: string): Promise<UploadResult> {
   const trigger = findInitialFrameTrigger();
   if (!trigger) return UploadResults.Failed;
-  await nativeClick(trigger);
 
-  const popover = await waitForOpenPopover();
+  trigger.scrollIntoView({ block: 'center', inline: 'center' });
+  await sleepAbortable(300);
   if (aborted) return UploadResults.Aborted;
-  if (!popover) return UploadResults.Failed;
 
-  // The hidden global file input is already in the DOM — no need to click
-  // the "Subir archivos multimedia" trigger, which would open the real OS
-  // file picker (a modal our script can't dismiss) since it's a trusted
-  // click. We inject the file directly instead.
-  const fileInput = findFileInput();
-  if (!fileInput) return UploadResults.Failed;
-
-  // A prior run could've left a same-named file — upload under a unique
-  // name to unambiguously find this exact upload.
+  // Unique name so later steps can unambiguously find this exact upload,
+  // not a stale one from a prior run.
   const uploadName = `${crypto.randomUUID()}-${imageName}`;
   const file = await base64ToFile(imageBase64, uploadName);
-  const dt = new DataTransfer();
-  dt.items.add(file);
-  fileInput.files = dt.files;
-  fileInput.dispatchEvent(new Event('input', { bubbles: true }));
-  fileInput.dispatchEvent(new Event('change', { bubbles: true }));
+  const dataTransfer = new DataTransfer();
+  dataTransfer.items.add(file);
+  const dragEventInit: DragEventInit = { bubbles: true, cancelable: true, dataTransfer };
 
-  const option = await waitFor(
-    () => findUploadedOption(popover, uploadName),
-    UPLOAD_WAIT_TIMEOUT_MS
-  );
+  trigger.dispatchEvent(new DragEvent('dragenter', dragEventInit));
+  trigger.dispatchEvent(new DragEvent('dragover', dragEventInit));
+  trigger.dispatchEvent(new DragEvent('drop', dragEventInit));
+  if (aborted) return UploadResults.Aborted;
+
+  await waitFor(() => findUploadedMedia(uploadName), UPLOAD_WAIT_TIMEOUT_MS);
+  if (aborted) return UploadResults.Aborted;
+  // Element existing isn't the same as Angular being done reacting to it —
+  // this flow is intermittent without a beat here before opening the picker.
+  await sleepAbortable(500);
+  if (aborted) return UploadResults.Aborted;
+
+  await nativeClick(trigger);
+
+  const option = await waitFor(() => findUploadedTile(uploadName), UPLOAD_WAIT_TIMEOUT_MS);
   if (aborted) return UploadResults.Aborted;
   if (!option) return UploadResults.Failed;
   await nativeClick(option);
+  // Same reasoning — give the selection a beat to register before confirming.
+  await sleepAbortable(500);
+  if (aborted) return UploadResults.Aborted;
 
-  return confirmSelection(popover);
+  return confirmSelection();
 }
 
 async function uploadWithRetries(

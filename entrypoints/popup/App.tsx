@@ -64,13 +64,17 @@ export default function App() {
       // Pick the first successfully downloaded blob as the scene reference.
       // Using index 0 (instead of random) gives deterministic, reproducible results.
       const validBlobs = blobs.filter((b): b is Blob => b !== null);
-      if (validBlobs.length > 0) {
-        const refName =
-          pw.mode === BatchModes.Image
-            ? sceneRefImageName(pw.sceneNumber)
-            : sceneRefVideoName(pw.sceneNumber);
-        await writeBlobToFile(rootDir, refName, validBlobs[0]);
-      }
+      // fetchBlobWithRetry fails silently (returns null, no throw) — if
+      // every url failed, this isn't a "done with 0 results" scene, it's a
+      // failed write. Throwing here routes it into the same catch-and-retry
+      // path below instead of reporting WriteDone for nothing written.
+      if (validBlobs.length === 0) throw new Error('No media downloaded');
+
+      const refName =
+        pw.mode === BatchModes.Image
+          ? sceneRefImageName(pw.sceneNumber)
+          : sceneRefVideoName(pw.sceneNumber);
+      await writeBlobToFile(rootDir, refName, validBlobs[0]);
 
       browser.runtime
         .sendMessage({ action: Actions.WriteDone, sceneNumber: pw.sceneNumber })

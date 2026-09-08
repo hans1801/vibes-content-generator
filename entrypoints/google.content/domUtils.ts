@@ -28,14 +28,22 @@ export async function sleepAbortable(ms: number) {
 }
 
 // Uses the Chrome Debugger API to dispatch a trusted (isTrusted=true) mouse
-// click, which is required to pass Google Flow's synthetic-event guards.
-export async function nativeClick(element: HTMLElement): Promise<void> {
+// event, which is required to pass Google Flow's synthetic-event guards —
+// e.g. a gallery video tile shows only a poster <img> until actually
+// hovered, and a synthetic dispatchEvent doesn't trigger Angular's mount.
+async function nativeMouseEvent(
+  action: typeof Actions.NativeClick | typeof Actions.NativeHover,
+  element: HTMLElement
+): Promise<void> {
   const rect = element.getBoundingClientRect();
   const x = Math.round(rect.left + rect.width / 2);
   const y = Math.round(rect.top + rect.height / 2);
-  await browser.runtime.sendMessage({ action: Actions.NativeClick, x, y });
+  await browser.runtime.sendMessage({ action, x, y });
   await sleep(300);
 }
+
+export const nativeClick = (element: HTMLElement) => nativeMouseEvent(Actions.NativeClick, element);
+export const nativeHover = (element: HTMLElement) => nativeMouseEvent(Actions.NativeHover, element);
 
 export async function nativeType(text: string): Promise<void> {
   await browser.runtime.sendMessage({ action: Actions.NativeType, text });

@@ -8,7 +8,7 @@ import {
   advanceAfterPendingWrite,
   markSceneErrorAndAdvance,
 } from './sceneOrchestration';
-import { nativeClick, nativeType } from './nativeInput';
+import { nativeClick, nativeType, nativeHover } from './nativeInput';
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(async (message: ExtensionMessage, sender) => {
@@ -91,11 +91,12 @@ export default defineBackground(() => {
       return;
     }
 
-    if (message.action === Actions.NativeClick) {
+    if (message.action === Actions.NativeClick || message.action === Actions.NativeHover) {
       const { x, y } = message;
       const tabId = batchStore.batch?.tabId ?? sender.tab?.id;
       if (!tabId) return;
-      await nativeClick(tabId, x, y);
+      const dispatch = message.action === Actions.NativeClick ? nativeClick : nativeHover;
+      await dispatch(tabId, x, y);
       return { ok: true };
     }
 
